@@ -39,9 +39,7 @@ var (
 
 	commands = map[string]func(context.Context, *genomics.Service, string, []string) error{
 		"run":    run.Invoke,
-		"start":  run.Invoke,
 		"cancel": cancel.Invoke,
-		"stop":   cancel.Invoke,
 		"query":  query.Invoke,
 	}
 )
@@ -50,7 +48,11 @@ func main() {
 	flag.Parse()
 
 	if flag.NArg() == 0 {
-		exitf("Missing command name")
+		names := make([]string, 0, len(commands))
+		for name := range commands {
+			names = append(names, name)
+		}
+		exitf("Missing command name: expecting one of %s", names)
 	}
 
 	command := flag.Arg(0)
