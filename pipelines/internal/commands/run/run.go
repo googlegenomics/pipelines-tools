@@ -111,6 +111,7 @@ var (
 	outputs        = flags.String("outputs", "", "comma separated list of GCS objects to delocalize from the VM")
 	diskSizeGb     = flags.Int("disk-size", 500, "the attached disk size (in GB)")
 	privateAddress = flags.Bool("private-address", false, "use a private IP address")
+	cloudSDKImage  = flags.String("cloud_sdk_image", "google/cloud-sdk:alpine", "the cloud SDK image to use")
 )
 
 const (
@@ -137,7 +138,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 	for i, input := range listOf(*inputs) {
 		filename := filepath.Join(inputRoot, fmt.Sprintf("input%d", i))
 		localizers = append(localizers, &genomics.Action{
-			ImageUri: "google/cloud-sdk",
+			ImageUri: *cloudSDKImage,
 			Commands: []string{"gsutil", "-q", "cp", input, filename},
 			Mounts:   []*genomics.Mount{{Disk: diskName, Path: inputRoot}},
 		})
@@ -146,7 +147,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 	for i, output := range listOf(*outputs) {
 		filename := filepath.Join(outputRoot, fmt.Sprintf("output%d", i))
 		delocalizers = append(delocalizers, &genomics.Action{
-			ImageUri: "google/cloud-sdk",
+			ImageUri: *cloudSDKImage,
 			Commands: []string{"gsutil", "-q", "cp", filename, output},
 			Flags:    []string{"ALWAYS_RUN"},
 			Mounts:   []*genomics.Mount{{Disk: diskName, Path: outputRoot, ReadOnly: true}},
@@ -155,7 +156,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 	}
 	if *output != "" {
 		delocalizers = append(delocalizers, &genomics.Action{
-			ImageUri: "google/cloud-sdk",
+			ImageUri: *cloudSDKImage,
 			Commands: []string{"gsutil", "-q", "cp", "/google/logs/output", *output},
 			Flags:    []string{"ALWAYS_RUN"},
 		})
@@ -362,7 +363,7 @@ func detectImage(command []string, options map[string]string) string {
 		return image
 	}
 	if isCloudCommand(command[0]) {
-		return "google/cloud-sdk"
+		return *cloudSDKImage
 	}
 	return "bash"
 }
@@ -393,7 +394,7 @@ func findReference(root string, commands []string) bool {
 func addRequiredScopes(pipeline *genomics.Pipeline) {
 	scopes := &pipeline.Resources.VirtualMachine.ServiceAccount.Scopes
 	for _, action := range pipeline.Actions {
-		if action.ImageUri == "google/cloud-sdk" || isCloudCommand(action.Commands[0]) {
+		if strings.HasPrefix(action.ImageUri, "google/cloud-sdk") || isCloudCommand(action.Commands[0]) {
 			*scopes = append(*scopes, "https://www.googleapis.com/auth/devstorage.read_write")
 			return
 		}
