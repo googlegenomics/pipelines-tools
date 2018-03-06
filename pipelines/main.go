@@ -55,6 +55,10 @@ func main() {
 		exitf("Missing command name: expecting one of %s", names)
 	}
 
+	if *project == "" {
+		exitf("You must specify a project with --project")
+	}
+
 	command := flag.Arg(0)
 	invoke := commands[command]
 	if invoke == nil {
