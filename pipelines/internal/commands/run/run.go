@@ -15,17 +15,20 @@
 // Package run provides a sub tool for running pipelines.
 package run
 
-// This tool takes as an input a script file composed of a series of command
-// lines to execute.
+// This tool takes an input file (either a script or a JSON encoded set of
+// actions) and runs it using the Pipelines API.
 //
-// By default, each command line is executed using the 'bash' container and
-// must succeed before the next command is executed.  This behaviour can be
-// modified using a '&' at the end of the line which will cause the command to
-// run in the background.  Additionally, flags and options can be specified
-// after a '#' character to control what image is used or to apply other action
-// flags.
+// The script file (passed with the --script flag) should contain a series of
+// command lines.  Each line is executed using the 'bash' container and must
+// succeed before the next command is executed.  This behaviour can be modified
+// using a '&' at the end of the line which will cause the command to run in
+// the background.  Additionally, flags and options can be specified after a
+// '#' character to control what image is used or to apply other action flags.
 //
-// Files from GCS can be specified as inputs to the script using the --inputs
+// The actions file (passed via the --actions flag) must contain a JSON array
+// of Action objects.
+//
+// Files from GCS can be specified as inputs to the pipeline using the --inputs
 // flag.  These files will be copied onto the VM.  The names of the localized
 // files are exposed via the environment variables $INPUT0 to $INPUTN.  Note
 // that the input files are placed on a read-only disk.
@@ -60,13 +63,24 @@ package run
 //
 //    echo "Hello World!"
 //
-// Example 2: Background action
+// Example 2: Simple 'hello world' actions file
+//
+//    [
+//      {
+//        "imageUri": "bash",
+//        "commands": [
+//          "-c", "echo \"Hello World!\""
+//        ]
+//      }
+//    ]
+//
+// Example 3: Background action script
 //
 //    while true; do echo "Hello background world!"; sleep 1; done &
 //    sleep 5
 //    echo "Hello foreground world!"
 //
-// Example 3: Indexing a BAM
+// Example 4: BAM indexing script
 //
 //    export BAM=NA12892_S1.bam
 //    export BAI=${BAM}.bai
@@ -74,7 +88,7 @@ package run
 //    index /tmp/${BAM} /tmp/${BAI} # image=gcr.io/genomics-tools/samtools
 //    gsutil cp /tmp/${BAI} gs://my-bucket/
 //
-// Example 4: SHA1 sum a file (using the --inputs and --outputs flags).
+// Example 5: Script to SHA1 sum a file (using --inputs and --outputs).
 //
 //    sha1sum ${INPUT0} > ${OUTPUT0}
 //
@@ -100,6 +114,7 @@ var (
 	basePath       = flags.String("base-path", "", "optional API service base path")
 	name           = flags.String("name", "", "optional name applied as a label")
 	script         = flags.String("script", "", "the script to run")
+	actionsJSON    = flags.String("actions", "", "filename to read JSON encoded actions from")
 	scopes         = flags.String("scopes", "", "comma separated list of additional API scopes")
 	zone           = flags.String("zone", "us-east1-d", "zone to run in")
 	output         = flags.String("output", "", "GCS path to write output to")
@@ -123,11 +138,11 @@ const (
 func Invoke(ctx context.Context, service *genomics.Service, project string, arguments []string) error {
 	flags.Parse(arguments)
 
-	if *script == "" {
-		return errors.New("the script flag is required")
+	if *script == "" && *actionsJSON == "" {
+		return errors.New("either the --script or --actions flag must be specified")
 	}
 
-	labels := map[string]string{"script-filename": *script}
+	labels := make(map[string]string)
 	if *name != "" {
 		labels["name"] = *name
 	}
@@ -162,9 +177,24 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 		})
 	}
 
-	actions, err := parseScript(*script, environment)
-	if err != nil {
-		return fmt.Errorf("creating pipeline from script: %v", err)
+	var actions []*genomics.Action
+	if *script != "" {
+		labels["script-filename"] = *script
+		v, err := parseScript(*script, environment)
+		if err != nil {
+			return fmt.Errorf("creating pipeline from script: %v", err)
+		}
+		actions = v
+	}
+	if *actionsJSON != "" {
+		f, err := os.Open(*actionsJSON)
+		if err != nil {
+			return fmt.Errorf("opening actions file: %v", err)
+		}
+		defer f.Close()
+		if err := json.NewDecoder(f).Decode(&actions); err != nil {
+			return fmt.Errorf("reading actions from file: %v", err)
+		}
 	}
 
 	pipeline := &genomics.Pipeline{
@@ -174,7 +204,6 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 			VirtualMachine: &genomics.VirtualMachine{
 				MachineType: *machineType,
 				Preemptible: *preemptible,
-				Disks:       []*genomics.Disk{{Name: diskName, SizeGb: int64(*diskSizeGb)}},
 				Network: &genomics.Network{
 					UsePrivateAddress: *privateAddress,
 				},
@@ -185,6 +214,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 		Environment: environment,
 	}
 
+	addRequiredDisks(pipeline)
 	addRequiredScopes(pipeline)
 
 	encoded, err := json.MarshalIndent(pipeline, "", "  ")
@@ -389,6 +419,23 @@ func findReference(root string, commands []string) bool {
 		}
 	}
 	return false
+}
+
+func addRequiredDisks(pipeline *genomics.Pipeline) {
+	disks := make(map[string]bool)
+	for _, action := range pipeline.Actions {
+		for _, mount := range action.Mounts {
+			disks[mount.Disk] = true
+		}
+	}
+
+	vm := pipeline.Resources.VirtualMachine
+	for name := range disks {
+		vm.Disks = append(vm.Disks, &genomics.Disk{
+			Name:   name,
+			SizeGb: int64(*diskSizeGb),
+		})
+	}
 }
 
 func addRequiredScopes(pipeline *genomics.Pipeline) {
