@@ -188,6 +188,9 @@ func main() {
 }
 
 func mergeResources(defaults, runtime *v1.PipelineResources) *v1.PipelineResources {
+	if defaults == nil {
+		defaults = &v1.PipelineResources{}
+	}
 	if runtime != nil {
 		if n := runtime.BootDiskSizeGb; n > 0 {
 			defaults.BootDiskSizeGb = n
