@@ -100,6 +100,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 
@@ -235,6 +236,8 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 		}
 		return fmt.Errorf("starting pipeline: %v", err)
 	}
+
+	cancelOnInterrupt(ctx, service, lro.Name)
 
 	fmt.Printf("Pipeline running as %q\n", lro.Name)
 	if *output != "" {
@@ -416,4 +419,17 @@ func listOf(input string) []string {
 		return nil
 	}
 	return strings.Split(input, ",")
+}
+
+func cancelOnInterrupt(ctx context.Context, service *genomics.Service, name string) {
+	abort := make(chan os.Signal, 1)
+	signal.Notify(abort, os.Interrupt)
+	go func() {
+		<-abort
+		fmt.Println("Cancelling operation...")
+		req := &genomics.CancelOperationRequest{}
+		if _, err := service.Projects.Operations.Cancel(name, req).Context(ctx).Do(); err != nil {
+			fmt.Printf("Failed to cancel operation: %v\n", err)
+		}
+	}()
 }
