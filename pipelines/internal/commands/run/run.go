@@ -102,8 +102,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
+	"github.com/googlegenomics/pipelines-tools/pipelines/internal/commands/watch"
 	genomics "google.golang.org/api/genomics/v2alpha1"
 	"google.golang.org/api/googleapi"
 )
@@ -245,48 +245,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 		return nil
 	}
 
-	result, err := monitor(ctx, service, lro.Name)
-	if err != nil {
-		return fmt.Errorf("monitoring pipeline: %v", err)
-	}
-
-	if status, ok := result.(*genomics.Status); ok {
-		return fmt.Errorf("executing pipeline: %s", status.Message)
-	}
-
-	fmt.Println("Pipeline execution completed")
-	return nil
-}
-
-func monitor(ctx context.Context, service *genomics.Service, name string) (interface{}, error) {
-	var events []*genomics.Event
-	for {
-		time.Sleep(5 * time.Second)
-		lro, err := service.Projects.Operations.Get(name).Context(ctx).Do()
-		if err != nil {
-			return nil, fmt.Errorf("getting operation status: %v", err)
-		}
-
-		var metadata genomics.Metadata
-		if err := json.Unmarshal(lro.Metadata, &metadata); err != nil {
-			return nil, fmt.Errorf("parsing metadata: %v", err)
-		}
-
-		if len(events) != len(metadata.Events) {
-			for i := len(metadata.Events) - len(events) - 1; i >= 0; i-- {
-				timestamp, _ := time.Parse(time.RFC3339Nano, metadata.Events[i].Timestamp)
-				fmt.Println(timestamp.Format("15:04:05"), metadata.Events[i].Description)
-			}
-			events = metadata.Events
-		}
-
-		if lro.Done {
-			if lro.Error != nil {
-				return lro.Error, nil
-			}
-			return lro.Response, nil
-		}
-	}
+	return watch.Invoke(ctx, service, project, []string{lro.Name})
 }
 
 func parseScript(filename string, globalEnv map[string]string) ([]*genomics.Action, error) {

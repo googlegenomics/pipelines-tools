@@ -27,6 +27,7 @@ import (
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/commands/cancel"
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/commands/query"
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/commands/run"
+	"github.com/googlegenomics/pipelines-tools/pipelines/internal/commands/watch"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -41,6 +42,7 @@ var (
 		"run":    run.Invoke,
 		"cancel": cancel.Invoke,
 		"query":  query.Invoke,
+		"watch":  watch.Invoke,
 	}
 )
 
