@@ -35,7 +35,7 @@ import (
 )
 
 var (
-	project  = flag.String("project", "", "the cloud project name")
+	project  = flag.String("project", defaultProject(), "the cloud project name")
 	basePath = flag.String("base_path", "", "the base API path to use")
 
 	commands = map[string]func(context.Context, *genomics.Service, string, []string) error{
@@ -108,4 +108,8 @@ func newService(ctx context.Context, basePath string) (*genomics.Service, error)
 		service.BasePath = basePath
 	}
 	return service, nil
+}
+
+func defaultProject() string {
+	return os.Getenv("GOOGLE_CLOUD_PROJECT")
 }
