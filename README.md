@@ -4,18 +4,43 @@
 This repository contains various tools that are useful when running pipelines
 with the [Google Genomics API][1]. 
 
-# Building the tools
+# Quick Start Using Cloud Shell
 
-In order to build the tools, you will need the [Go][2] tool
-chain (at least version 1.8).
+1. Enable the Genomics API and the Compute Engine API in a new or existing
+Google Cloud project.
+2. Start a [Cloud Shell][cloud-shell] inside your project.
+3. Inside the Cloud Shell, run the command
 
-Once Go is installed, you can build the tools by running:
+        go get github.com/googlegenomics/pipelines-tools/...
 
-```
-$ go get github.com/googlegenomics/pipelines-tools/...
-```
+   This command downloads and installs the pipelines tools.  Note that to build
+   these tools outside the Cloud Shell you will need the [Go][2] tool chain.
 
-This will produce binaries in $GOPATH/bin for each tool.
+4. Make a bucket on GCS to store the output from the pipeline:
+
+        export BUCKET=gs://${GOOGLE_CLOUD_PROJECT}-pipelines
+        gsutil mb ${BUCKET}
+
+5. Put some test data into the bucket:
+
+        echo "Hello World" | gsutil cp - ${BUCKET}/input
+
+6. Make a pipeline script that computes the SHA1 sum of a file:
+
+        echo 'sha1sum ${INPUT0} > ${OUTPUT0}' > sha1.script
+
+7. Run the script using the pipelines API:
+
+        pipelines run --inputs=${BUCKET}/input --outputs=${BUCKET}/output sha1.script
+
+8. Check the generated output file:
+
+        gsutil cat ${BUCKET}/output
+
+That's it: you've run your first pipeline.  For more information about the
+input formats supported by the pipelines tool, check out the [source code][3].
+To learn more about the Pipelines API, consult the [reference
+documentation][api-reference].
 
 # Usage
 
@@ -62,3 +87,5 @@ Please report problems using the issue tracker.
 [1]: https://cloud.google.com/genomics
 [2]: https://golang.org/
 [3]: https://github.com/googlegenomics/pipelines-tools/blob/master/pipelines/internal/commands/run/run.go#L18
+[cloud-shell]: https://cloud.google.com/shell/docs/quickstart
+[api-reference]: https://cloud.google.com/genomics/reference/rest/v2alpha1/pipelines/run
