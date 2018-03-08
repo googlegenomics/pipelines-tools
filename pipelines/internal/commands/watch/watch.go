@@ -20,9 +20,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
+	"github.com/googlegenomics/pipelines-tools/pipelines/internal/operations"
 	genomics "google.golang.org/api/genomics/v2alpha1"
 )
 
@@ -31,14 +31,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 		return errors.New("missing operation name")
 	}
 
-	name := arguments[0]
-	if !strings.HasPrefix(name, "projects/") {
-		if !strings.HasPrefix(name, "operations/") {
-			name = "operations/" + name
-		}
-		name = "projects/" + project + name
-	}
-
+	name := operations.ExpandName(project, arguments[0])
 	result, err := watch(ctx, service, name)
 	if err != nil {
 		return fmt.Errorf("watching pipeline: %v", err)
