@@ -36,7 +36,7 @@ import (
 
 var (
 	project  = flag.String("project", defaultProject(), "the cloud project name")
-	basePath = flag.String("base_path", "", "the base API path to use")
+	basePath = flag.String("api", "", "the API base to use")
 
 	commands = map[string]func(context.Context, *genomics.Service, string, []string) error{
 		"run":    run.Invoke,
