@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/googlegenomics/pipelines-tools/pipelines/internal/operations"
+	"github.com/googlegenomics/pipelines-tools/pipelines/internal/common"
 	genomics "google.golang.org/api/genomics/v2alpha1"
 )
 
@@ -31,7 +31,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 		return errors.New("missing operation name")
 	}
 
-	name := operations.ExpandName(project, arguments[0])
+	name := common.ExpandOperationName(project, arguments[0])
 	result, err := watch(ctx, service, name)
 	if err != nil {
 		return fmt.Errorf("watching pipeline: %v", err)

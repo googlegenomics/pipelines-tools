@@ -15,18 +15,23 @@
 // Package run provides a sub tool for running pipelines.
 package run
 
-// This tool takes an input file (either a script or a JSON encoded set of
-// actions) and runs it using the Pipelines API.
+// This tool takes an input file that describes a pipeline and runs it using
+// the Pipelines API.
 //
-// The script file (passed with the --script flag) should contain a series of
-// command lines.  Each line is executed using the 'bash' container and must
-// succeed before the next command is executed.  This behaviour can be modified
-// using a '&' at the end of the line which will cause the command to run in
-// the background.  Additionally, flags and options can be specified after a
-// '#' character to control what image is used or to apply other action flags.
+// The input file can be:
+// - a raw JSON encoded API request
+// - a JSON encoded array of action objects
+// - a script file (whose format is described below)
 //
-// The actions file (passed via the --actions flag) must contain a JSON array
-// of Action objects.
+// If a raw request is given as an input the tool does not do any of the
+// additional processing described below.
+//
+// The script file format consists of a series of command lines.  Each line is
+// executed using the 'bash' container and must succeed before the next command
+// is executed.  This behaviour can be modified using a '&' at the end of the
+// line which will cause the command to run in the background.  Additionally,
+// flags and options can be specified after a '#' character to control what
+// image is used or to apply other action flags.
 //
 // Files from GCS can be specified as inputs to the pipeline using the --inputs
 // flag.  These files will be copied onto the VM.  The names of the localized
@@ -105,6 +110,7 @@ import (
 	"strings"
 
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/commands/watch"
+	"github.com/googlegenomics/pipelines-tools/pipelines/internal/common"
 	genomics "google.golang.org/api/genomics/v2alpha1"
 	"google.golang.org/api/googleapi"
 )
@@ -114,8 +120,6 @@ var (
 
 	basePath       = flags.String("base-path", "", "optional API service base path")
 	name           = flags.String("name", "", "optional name applied as a label")
-	script         = flags.String("script", "", "the script to run")
-	actionsJSON    = flags.String("actions", "", "filename to read JSON encoded actions from")
 	scopes         = flags.String("scopes", "", "comma separated list of additional API scopes")
 	zone           = flags.String("zone", "us-east1-d", "zone to run in")
 	output         = flags.String("output", "", "GCS path to write output to")
@@ -137,10 +141,64 @@ const (
 )
 
 func Invoke(ctx context.Context, service *genomics.Service, project string, arguments []string) error {
-	flags.Parse(arguments)
+	filenames := common.ParseFlags(flags, arguments)
+	if len(filenames) != 1 {
+		return errors.New("a single input file is required")
+	}
 
-	if *script == "" && *actionsJSON == "" {
-		return errors.New("either the --script or --actions flag must be specified")
+	filename := filenames[0]
+
+	req, err := buildRequest(filename, project)
+	if err != nil {
+		return fmt.Errorf("building request: %v", err)
+	}
+
+	encoded, err := json.MarshalIndent(req, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding request: %v", err)
+	}
+	fmt.Printf("%s\n", encoded)
+
+	if *dryRun {
+		return nil
+	}
+
+	lro, err := service.Pipelines.Run(req).Context(ctx).Do()
+	if err != nil {
+		if err, ok := err.(*googleapi.Error); ok {
+			return fmt.Errorf("starting pipeline: %q: %q", err.Message, err.Body)
+		}
+		return fmt.Errorf("starting pipeline: %v", err)
+	}
+
+	cancelOnInterrupt(ctx, service, lro.Name)
+
+	fmt.Printf("Pipeline running as %q\n", lro.Name)
+	if *output != "" {
+		fmt.Printf("Output will be written to %q\n", *output)
+	}
+
+	if !*wait {
+		return nil
+	}
+
+	return watch.Invoke(ctx, service, project, []string{lro.Name})
+}
+
+func parseJSON(filename string, v interface{}) error {
+	f, err := os.Open(filename)
+	if err != nil {
+		return fmt.Errorf("opening file: %v", err)
+	}
+	defer f.Close()
+
+	return json.NewDecoder(f).Decode(v)
+}
+
+func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error) {
+	var req genomics.RunPipelineRequest
+	if err := parseJSON(filename, &req); err == nil {
+		return &req, nil
 	}
 
 	labels := make(map[string]string)
@@ -179,23 +237,12 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 	}
 
 	var actions []*genomics.Action
-	if *script != "" {
-		labels["script-filename"] = *script
-		v, err := parseScript(*script, environment)
+	if err := parseJSON(filename, &actions); err != nil {
+		v, err := parseScript(filename, environment)
 		if err != nil {
-			return fmt.Errorf("creating pipeline from script: %v", err)
+			return nil, fmt.Errorf("creating pipeline from script: %v", err)
 		}
 		actions = v
-	}
-	if *actionsJSON != "" {
-		f, err := os.Open(*actionsJSON)
-		if err != nil {
-			return fmt.Errorf("opening actions file: %v", err)
-		}
-		defer f.Close()
-		if err := json.NewDecoder(f).Decode(&actions); err != nil {
-			return fmt.Errorf("reading actions from file: %v", err)
-		}
 	}
 
 	pipeline := &genomics.Pipeline{
@@ -218,37 +265,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 	addRequiredDisks(pipeline)
 	addRequiredScopes(pipeline)
 
-	encoded, err := json.MarshalIndent(pipeline, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encoding pipeline: %v", err)
-	}
-	fmt.Printf("%s\n", encoded)
-
-	if *dryRun {
-		return nil
-	}
-
-	req := &genomics.RunPipelineRequest{Pipeline: pipeline, Labels: labels}
-	lro, err := service.Pipelines.Run(req).Context(ctx).Do()
-	if err != nil {
-		if err, ok := err.(*googleapi.Error); ok {
-			return fmt.Errorf("starting pipeline: %q: %q", err.Message, err.Body)
-		}
-		return fmt.Errorf("starting pipeline: %v", err)
-	}
-
-	cancelOnInterrupt(ctx, service, lro.Name)
-
-	fmt.Printf("Pipeline running as %q\n", lro.Name)
-	if *output != "" {
-		fmt.Printf("Output will be written to %q\n", *output)
-	}
-
-	if !*wait {
-		return nil
-	}
-
-	return watch.Invoke(ctx, service, project, []string{lro.Name})
+	return &genomics.RunPipelineRequest{Pipeline: pipeline, Labels: labels}, nil
 }
 
 func parseScript(filename string, globalEnv map[string]string) ([]*genomics.Action, error) {
