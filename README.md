@@ -54,7 +54,7 @@ As a simple example, to run a pipeline that prints 'hello world':
 $ cat <<EOF > hello.script
 echo "hello world"
 EOF
-$ pipelines --project=my-project run hello.script --output=gs://my-bucket/logs --wait
+$ pipelines --project=my-project run hello.script --output=gs://my-bucket/logs
 ```
 
 After the pipeline finishes, you can inspect the output using `gsutil`:
