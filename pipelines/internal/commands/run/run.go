@@ -97,6 +97,10 @@ package run
 //
 //    sha1sum ${INPUT0} > ${OUTPUT0}
 //
+// Example 6: Using netcat to dump logs for the running pipeline
+//
+//    nc -n -l -p 1234 -e tail -f /google/logs/output & # ports=1234:22
+//
 import (
 	"bufio"
 	"context"
@@ -107,6 +111,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/commands/watch"
@@ -361,13 +366,22 @@ func parse(line string, localEnv, globalEnv map[string]string) (*genomics.Action
 		commands = []string{"-c", strings.Join(commands, " ")}
 	}
 
-	return &genomics.Action{
+	action := &genomics.Action{
 		ImageUri:    image,
 		Commands:    commands,
 		Flags:       flags,
 		Environment: localEnv,
 		Mounts:      mounts,
-	}, nil
+	}
+
+	if v, ok := options["ports"]; ok {
+		ports, err := parsePorts(v)
+		if err != nil {
+			return nil, fmt.Errorf("parsing ports: %v", err)
+		}
+		action.PortMappings = ports
+	}
+	return action, nil
 }
 
 func detectImage(command []string, options map[string]string) string {
@@ -439,6 +453,22 @@ func listOf(input string) []string {
 		return nil
 	}
 	return strings.Split(input, ",")
+}
+
+func parsePorts(input string) (map[string]int64, error) {
+	ports := make(map[string]int64)
+	for _, pair := range strings.Split(input, ";") {
+		i := strings.Index(pair, ":")
+		if i < 1 {
+			return nil, fmt.Errorf("invalid port mapping %q", pair)
+		}
+		n, err := strconv.ParseInt(pair[i+1:], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parsing host port: %v", err)
+		}
+		ports[pair[:i]] = n
+	}
+	return ports, nil
 }
 
 func isRuntimeVariable(name string) bool {
