@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"time"
 
@@ -26,12 +27,19 @@ import (
 	genomics "google.golang.org/api/genomics/v2alpha1"
 )
 
+var (
+	flags = flag.NewFlagSet("", flag.ExitOnError)
+
+	details = flags.Bool("details", false, "show event details")
+)
+
 func Invoke(ctx context.Context, service *genomics.Service, project string, arguments []string) error {
-	if len(arguments) < 1 {
+	names := common.ParseFlags(flags, arguments)
+	if len(names) < 1 {
 		return errors.New("missing operation name")
 	}
 
-	name := common.ExpandOperationName(project, arguments[0])
+	name := common.ExpandOperationName(project, names[0])
 	result, err := watch(ctx, service, name)
 	if err != nil {
 		return fmt.Errorf("watching pipeline: %v", err)
@@ -62,6 +70,10 @@ func watch(ctx context.Context, service *genomics.Service, name string) (interfa
 			for i := len(metadata.Events) - len(events) - 1; i >= 0; i-- {
 				timestamp, _ := time.Parse(time.RFC3339Nano, metadata.Events[i].Timestamp)
 				fmt.Println(timestamp.Format("15:04:05"), metadata.Events[i].Description)
+
+				if *details {
+					fmt.Println(string(metadata.Events[i].Details))
+				}
 			}
 			events = metadata.Events
 		}
