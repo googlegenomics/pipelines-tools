@@ -324,6 +324,9 @@ func parse(line string, localEnv, globalEnv map[string]string) (*genomics.Action
 		if value, ok := os.LookupEnv(name); ok {
 			return value
 		}
+		if isRuntimeVariable(name) {
+			return fmt.Sprintf("${%s}", name)
+		}
 		missing = name
 		return ""
 	})
@@ -436,6 +439,10 @@ func listOf(input string) []string {
 		return nil
 	}
 	return strings.Split(input, ",")
+}
+
+func isRuntimeVariable(name string) bool {
+	return name == "GOOGLE_PIPELINE_FAILED" || name == "GOOGLE_LAST_EXIT_STATUS"
 }
 
 func cancelOnInterrupt(ctx context.Context, service *genomics.Service, name string) {
