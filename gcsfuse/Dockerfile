@@ -18,4 +18,4 @@ RUN apk add --update musl-dev go git fuse
 RUN mkdir /go
 RUN GOPATH=/go go get -u github.com/googlecloudplatform/gcsfuse
 
-ENTRYPOINT "/go/bin/gcsfuse"
+ENTRYPOINT ["/go/bin/gcsfuse"]
