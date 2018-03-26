@@ -23,6 +23,10 @@ package run
 // - a JSON encoded array of action objects
 // - a script file (whose format is described below)
 //
+// The input filename must be specified as a single positional argument (though
+// it can appear before or after other options).  If the input filename is '-',
+// the tool reads from standard input.
+//
 // If a raw request is given as an input the tool does not do any of the
 // additional processing described below.
 //
@@ -275,16 +279,22 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 }
 
 func parseScript(filename string, globalEnv map[string]string) ([]*genomics.Action, error) {
-	f, err := os.Open(filename)
-	if err != nil {
-		return nil, fmt.Errorf("opening script: %v", err)
+	var scanner *bufio.Scanner
+	if filename == "-" {
+		scanner = bufio.NewScanner(os.Stdin)
+	} else {
+		f, err := os.Open(filename)
+		if err != nil {
+			return nil, fmt.Errorf("opening script: %v", err)
+		}
+		defer f.Close()
+
+		scanner = bufio.NewScanner(f)
 	}
-	defer f.Close()
 
 	var line int
 	var actions []*genomics.Action
 	localEnv := make(map[string]string)
-	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line++
 		action, err := parse(scanner.Text(), localEnv, globalEnv)
