@@ -119,6 +119,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/commands/watch"
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/common"
@@ -146,6 +147,7 @@ var (
 	bootDiskSizeGb = flags.Int("boot-disk-size", 0, "if non-zero, specifies the boot disk size (in GB)")
 	privateAddress = flags.Bool("private-address", false, "use a private IP address")
 	cloudSDKImage  = flags.String("cloud_sdk_image", "google/cloud-sdk:alpine", "the cloud SDK image to use")
+	timeout        = flags.Duration("timeout", 0, "how long to wait before the operation is abandoned")
 )
 
 const (
@@ -185,7 +187,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 		return fmt.Errorf("starting pipeline: %v", err)
 	}
 
-	cancelOnInterrupt(ctx, service, lro.Name)
+	cancelOnInterruptOrTimeout(ctx, service, lro.Name, *timeout)
 
 	fmt.Printf("Pipeline running as %q\n", lro.Name)
 	if *output != "" {
@@ -567,11 +569,20 @@ func isRuntimeVariable(name string) bool {
 	return name == "GOOGLE_PIPELINE_FAILED" || name == "GOOGLE_LAST_EXIT_STATUS"
 }
 
-func cancelOnInterrupt(ctx context.Context, service *genomics.Service, name string) {
+func cancelOnInterruptOrTimeout(ctx context.Context, service *genomics.Service, name string, timeout time.Duration) {
+	var ticker <-chan time.Time
+	if timeout > 0 {
+		ticker = time.After(timeout)
+	}
+
 	abort := make(chan os.Signal, 1)
 	signal.Notify(abort, os.Interrupt)
 	go func() {
-		<-abort
+		select {
+		case <-abort:
+		case <-ticker:
+			fmt.Println("User specified timeout has been reached")
+		}
 		fmt.Println("Cancelling operation...")
 		req := &genomics.CancelOperationRequest{}
 		if _, err := service.Projects.Operations.Cancel(name, req).Context(ctx).Do(); err != nil {
