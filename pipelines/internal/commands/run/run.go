@@ -35,7 +35,8 @@ package run
 // is executed.  This behaviour can be modified using a '&' at the end of the
 // line which will cause the command to run in the background.  Additionally,
 // flags and options can be specified after a '#' character to control what
-// image is used or to apply other action flags.
+// image is used or to apply other action flags.  A trailing '\' can be used to
+// break up a long line.
 //
 // Files from GCS can be specified as inputs to the pipeline using the --inputs
 // flag.  These files will be copied onto the VM.  The names of the localized
@@ -293,17 +294,29 @@ func parseScript(filename string, globalEnv map[string]string) ([]*genomics.Acti
 	}
 
 	var line int
+	var buffer strings.Builder
 	var actions []*genomics.Action
 	localEnv := make(map[string]string)
 	for scanner.Scan() {
+		text := scanner.Text()
 		line++
-		action, err := parse(scanner.Text(), localEnv, globalEnv)
+
+		if strings.HasSuffix(text, "\\") {
+			buffer.WriteString(text[:len(text)-1])
+			continue
+		}
+
+		buffer.WriteString(text)
+
+		action, err := parse(buffer.String(), localEnv, globalEnv)
 		if err != nil {
 			return nil, fmt.Errorf("line %d: %v", line, err)
 		}
 		if action != nil {
 			actions = append(actions, action)
 		}
+
+		buffer.Reset()
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("reading script: %v", err)
