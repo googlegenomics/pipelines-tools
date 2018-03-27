@@ -131,7 +131,7 @@ var (
 	basePath       = flags.String("base-path", "", "optional API service base path")
 	name           = flags.String("name", "", "optional name applied as a label")
 	scopes         = flags.String("scopes", "", "comma separated list of additional API scopes")
-	zone           = flags.String("zone", "us-east1-d", "zone to run in")
+	zones          = flags.String("zones", "us-east1-d", "comma separated list of zones to run in")
 	output         = flags.String("output", "", "GCS path to write output to")
 	dryRun         = flags.Bool("dry-run", false, "don't run, just show pipeline")
 	wait           = flags.Bool("wait", true, "wait for the pipeline to finish")
@@ -259,7 +259,7 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 	pipeline := &genomics.Pipeline{
 		Resources: &genomics.Resources{
 			ProjectId: project,
-			Zones:     []string{*zone},
+			Zones:     listOf(*zones),
 			VirtualMachine: &genomics.VirtualMachine{
 				MachineType: *machineType,
 				Preemptible: *preemptible,
