@@ -31,12 +31,16 @@ package run
 // additional processing described below.
 //
 // The script file format consists of a series of command lines.  Each line is
-// executed using the 'bash' container and must succeed before the next command
-// is executed.  This behaviour can be modified using a '&' at the end of the
-// line which will cause the command to run in the background.  Additionally,
-// flags and options can be specified after a '#' character to control what
-// image is used or to apply other action flags.  A trailing '\' can be used to
-// break up a long line.
+// executed as a 'bash' command line in a separate container and must succeed
+// before the next command is executed.  This behaviour can be modified using a
+// '&' at the end of the line which will cause the command to run in the
+// background.  Additionally, flags and options can be specified after a '#'
+// character to control what image is used or to apply other action flags.  A
+// trailing '\' can be used to break up a long line.
+//
+// The container image used to execute the command can be changed using the
+// --image flag or on a per command basis using "# image=...".  The image must
+// contain a 'bash' binary and have the entrypoint set to a working shell.
 //
 // Files from GCS can be specified as inputs to the pipeline using the --inputs
 // flag.  These files will be copied onto the VM.  The names of the localized
@@ -148,6 +152,7 @@ var (
 	privateAddress = flags.Bool("private-address", false, "use a private IP address")
 	cloudSDKImage  = flags.String("cloud_sdk_image", "google/cloud-sdk:alpine", "the cloud SDK image to use")
 	timeout        = flags.Duration("timeout", 0, "how long to wait before the operation is abandoned")
+	defaultImage   = flags.String("image", "bash", "the default image to use when executing commands")
 )
 
 const (
@@ -405,9 +410,7 @@ func parse(line string, localEnv, globalEnv map[string]string) (*genomics.Action
 
 	image := detectImage(commands, options)
 	mounts := detectMounts(commands)
-	if image == "bash" {
-		commands = []string{"-c", strings.Join(commands, " ")}
-	}
+	commands = []string{"bash", "-c", strings.Join(commands, " ")}
 
 	action := &genomics.Action{
 		ImageUri:    image,
@@ -434,7 +437,7 @@ func detectImage(command []string, options map[string]string) string {
 	if isCloudCommand(command[0]) {
 		return *cloudSDKImage
 	}
-	return "bash"
+	return *defaultImage
 }
 
 func detectMounts(commands []string) []*genomics.Mount {
