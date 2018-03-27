@@ -122,6 +122,8 @@ import (
 
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/commands/watch"
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/common"
+	"golang.org/x/oauth2/google"
+	compute "google.golang.org/api/compute/v1"
 	genomics "google.golang.org/api/genomics/v2alpha1"
 	"google.golang.org/api/googleapi"
 )
@@ -132,7 +134,7 @@ var (
 	basePath       = flags.String("base-path", "", "optional API service base path")
 	name           = flags.String("name", "", "optional name applied as a label")
 	scopes         = flags.String("scopes", "", "comma separated list of additional API scopes")
-	zones          = flags.String("zones", "us-east1-d", "comma separated list of zones to run in")
+	zones          = flags.String("zones", "us-east1-d", "comma separated list of zone names or prefixes (e.g. us-*)")
 	output         = flags.String("output", "", "GCS path to write output to")
 	dryRun         = flags.Bool("dry-run", false, "don't run, just show pipeline")
 	wait           = flags.Bool("wait", true, "wait for the pipeline to finish")
@@ -266,10 +268,15 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		actions = v
 	}
 
+	zones, err := expandZones(project, listOf(*zones))
+	if err != nil {
+		return nil, fmt.Errorf("expanding zones: %v", err)
+	}
+
 	pipeline := &genomics.Pipeline{
 		Resources: &genomics.Resources{
 			ProjectId: project,
-			Zones:     listOf(*zones),
+			Zones:     zones,
 			VirtualMachine: &genomics.VirtualMachine{
 				MachineType: *machineType,
 				Preemptible: *preemptible,
@@ -490,6 +497,54 @@ func listOf(input string) []string {
 		return nil
 	}
 	return strings.Split(input, ",")
+}
+
+func expandZones(project string, input []string) ([]string, error) {
+	var zones, prefixes []string
+	for _, zone := range input {
+		if strings.HasSuffix(zone, "*") {
+			prefixes = append(prefixes, zone[:len(zone)-1])
+		} else {
+			zones = append(zones, zone)
+		}
+	}
+	if len(prefixes) > 0 {
+		allZones, err := listZones(project)
+		if err != nil {
+			return nil, err
+		}
+		for _, zone := range allZones {
+			for _, prefix := range prefixes {
+				if strings.HasPrefix(zone, prefix) {
+					zones = append(zones, zone)
+					break
+				}
+			}
+		}
+	}
+	return zones, nil
+}
+
+func listZones(project string) ([]string, error) {
+	client, err := google.DefaultClient(context.Background(), compute.ComputeScope)
+	if err != nil {
+		return nil, fmt.Errorf("creating compute client: %v", err)
+	}
+	service, err := compute.New(client)
+	if err != nil {
+		return nil, fmt.Errorf("creating compute service: %v", err)
+	}
+
+	resp, err := service.Zones.List(project).Do()
+	if err != nil {
+		return nil, fmt.Errorf("listing zones: %v", err)
+	}
+
+	var zones []string
+	for _, zone := range resp.Items {
+		zones = append(zones, zone.Name)
+	}
+	return zones, nil
 }
 
 func parsePorts(input string) (map[string]int64, error) {
