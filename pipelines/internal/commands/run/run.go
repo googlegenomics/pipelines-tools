@@ -115,6 +115,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -218,10 +219,12 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 	}
 
 	environment := make(map[string]string)
+	filenames := make(map[string]int)
 
 	var localizers, delocalizers []*genomics.Action
 	for i, input := range listOf(*inputs) {
-		filename := filepath.Join(inputRoot, fmt.Sprintf("input%d", i))
+		filenames[path.Base(input)]++
+		filename := filepath.Join(inputRoot, path.Base(input))
 		localizers = append(localizers, &genomics.Action{
 			ImageUri: *cloudSDKImage,
 			Commands: []string{"gsutil", "-q", "cp", input, filename},
@@ -230,7 +233,8 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		environment[fmt.Sprintf("INPUT%d", i)] = filename
 	}
 	for i, output := range listOf(*outputs) {
-		filename := filepath.Join(outputRoot, fmt.Sprintf("output%d", i))
+		filenames[path.Base(output)]++
+		filename := filepath.Join(outputRoot, path.Base(output))
 		delocalizers = append(delocalizers, &genomics.Action{
 			ImageUri: *cloudSDKImage,
 			Commands: []string{"gsutil", "-q", "cp", filename, output},
@@ -239,6 +243,12 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		})
 		environment[fmt.Sprintf("OUTPUT%d", i)] = filename
 	}
+	for filename, count := range filenames {
+		if count > 1 {
+			return nil, fmt.Errorf("duplicate filename %q is not supported", filename)
+		}
+	}
+
 	if *output != "" {
 		delocalizers = append(delocalizers, &genomics.Action{
 			ImageUri: *cloudSDKImage,
