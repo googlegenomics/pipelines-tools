@@ -61,14 +61,6 @@ package run
 // automatically include the cloud-platform API scope whenever the cloud-sdk
 // container is used.
 //
-// Any 'export' commands are interpreted prior to execution of the pipeline.
-// The specified value is injected into the environment for all subsequent
-// commands.
-//
-// Variable references of the form ${VARIABLE} or $VARIABLE are replaced using
-// values from the host environment (unless the value has been overwritten by a
-// previous export command).
-//
 // If the --output flag is specified, an action is appended that copies the
 // combined pipeline output to the specified GCS path.
 //
@@ -127,7 +119,8 @@ import (
 )
 
 var (
-	googleRoot = &genomics.Mount{Disk: "google", Path: "/mnt/google"}
+	googleRoot  = &genomics.Mount{Disk: "google", Path: "/mnt/google"}
+	environment = make(map[string]string)
 
 	flags = flag.NewFlagSet("", flag.ExitOnError)
 
@@ -149,6 +142,10 @@ var (
 	timeout        = flags.Duration("timeout", 0, "how long to wait before the operation is abandoned")
 	defaultImage   = flags.String("image", "bash", "the default image to use when executing commands")
 )
+
+func init() {
+	flags.Var(&common.MapFlagValue{environment}, "set", "sets an environment variable (e.g. NAME[=VALUE])")
+}
 
 func Invoke(ctx context.Context, service *genomics.Service, project string, arguments []string) error {
 	filenames := common.ParseFlags(flags, arguments)
@@ -216,7 +213,6 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		labels["name"] = *name
 	}
 
-	environment := make(map[string]string)
 	filenames := make(map[string]int)
 
 	var googlePaths []string
@@ -260,7 +256,7 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 
 	var actions []*genomics.Action
 	if err := parseJSON(filename, &actions); err != nil {
-		v, err := parseScript(filename, environment)
+		v, err := parseScript(filename)
 		if err != nil {
 			return nil, fmt.Errorf("creating pipeline from script: %v", err)
 		}
@@ -299,7 +295,7 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 	return &genomics.RunPipelineRequest{Pipeline: pipeline, Labels: labels}, nil
 }
 
-func parseScript(filename string, globalEnv map[string]string) ([]*genomics.Action, error) {
+func parseScript(filename string) ([]*genomics.Action, error) {
 	var scanner *bufio.Scanner
 	if filename == "-" {
 		scanner = bufio.NewScanner(os.Stdin)
@@ -316,7 +312,6 @@ func parseScript(filename string, globalEnv map[string]string) ([]*genomics.Acti
 	var line int
 	var buffer strings.Builder
 	var actions []*genomics.Action
-	localEnv := make(map[string]string)
 	for scanner.Scan() {
 		text := scanner.Text()
 		line++
@@ -328,7 +323,7 @@ func parseScript(filename string, globalEnv map[string]string) ([]*genomics.Acti
 
 		buffer.WriteString(text)
 
-		action, err := parse(buffer.String(), localEnv, globalEnv)
+		action, err := parse(buffer.String())
 		if err != nil {
 			return nil, fmt.Errorf("line %d: %v", line, err)
 		}
@@ -344,7 +339,7 @@ func parseScript(filename string, globalEnv map[string]string) ([]*genomics.Acti
 	return actions, nil
 }
 
-func parse(line string, localEnv, globalEnv map[string]string) (*genomics.Action, error) {
+func parse(line string) (*genomics.Action, error) {
 	var (
 		commands []string
 		flags    []string
@@ -362,28 +357,6 @@ func parse(line string, localEnv, globalEnv map[string]string) (*genomics.Action
 		line = line[:n]
 	}
 
-	var missing string
-	line = os.Expand(line, func(name string) string {
-		if value, ok := localEnv[name]; ok {
-			return value
-		}
-		if value, ok := globalEnv[name]; ok {
-			return value
-		}
-		if value, ok := os.LookupEnv(name); ok {
-			return value
-		}
-		if isRuntimeVariable(name) {
-			return fmt.Sprintf("${%s}", name)
-		}
-		missing = name
-		return ""
-	})
-
-	if missing != "" {
-		return nil, fmt.Errorf("missing value for variable %q", missing)
-	}
-
 	commands = strings.Fields(strings.TrimSpace(line))
 	if len(commands) == 0 {
 		return nil, nil
@@ -394,25 +367,11 @@ func parse(line string, localEnv, globalEnv map[string]string) (*genomics.Action
 		commands = commands[:len(commands)-1]
 	}
 
-	if commands[0] == "export" {
-		fields := strings.SplitN(strings.Join(commands[1:], " "), "=", 2)
-		if len(fields) != 2 {
-			return nil, fmt.Errorf("missing assignment in export command: %q", line)
-		}
-
-		localEnv[fields[0]] = fields[1]
-		return nil, nil
-	}
-
-	image := detectImage(commands, options)
-	commands = []string{"bash", "-c", strings.Join(commands, " ")}
-
 	action := &genomics.Action{
-		ImageUri:    image,
-		Commands:    commands,
-		Flags:       flags,
-		Environment: localEnv,
-		Mounts:      []*genomics.Mount{googleRoot},
+		ImageUri: detectImage(commands, options),
+		Commands: []string{"bash", "-c", strings.Join(commands, " ")},
+		Flags:    flags,
+		Mounts:   []*genomics.Mount{googleRoot},
 	}
 
 	if v, ok := options["ports"]; ok {
@@ -538,10 +497,6 @@ func parsePorts(input string) (map[string]int64, error) {
 		ports[pair[:i]] = n
 	}
 	return ports, nil
-}
-
-func isRuntimeVariable(name string) bool {
-	return name == "GOOGLE_PIPELINE_FAILED" || name == "GOOGLE_LAST_EXIT_STATUS"
 }
 
 func gsutil(arguments ...string) *genomics.Action {
