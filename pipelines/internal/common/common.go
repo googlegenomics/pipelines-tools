@@ -3,6 +3,7 @@ package common
 
 import (
 	"flag"
+	"fmt"
 	"path"
 	"strings"
 )
@@ -32,4 +33,21 @@ func ParseFlags(flags *flag.FlagSet, arguments []string) []string {
 		nonFlags = append(nonFlags, flags.Arg(0))
 		arguments = flags.Args()[1:]
 	}
+}
+
+type MapFlagValue struct {
+	Values map[string]string
+}
+
+func (m *MapFlagValue) String() string {
+	return fmt.Sprintf("%v", m.Values)
+}
+
+func (m *MapFlagValue) Set(input string) error {
+	if i := strings.Index(input, "="); i >= 0 {
+		m.Values[input[0:i]] = input[i+1:]
+	} else {
+		m.Values[input] = ""
+	}
+	return nil
 }
