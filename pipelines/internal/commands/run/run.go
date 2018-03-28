@@ -44,12 +44,17 @@ package run
 //
 // Files from GCS can be specified as inputs to the pipeline using the --inputs
 // flag.  These files will be copied onto the VM.  The names of the localized
-// files are exposed via the environment variables $INPUT0 to $INPUTN.  Note
-// that the input files are placed on a read-only disk.
+// files are exposed via the environment variables $INPUT0 to $INPUTN.
 //
 // Similarly, destinations in GCS may be specified with the --outputs flag.
 // Each output file will be exposed by via the environment variables $OUTPUT0
 // to $OUTPUTN.
+//
+// Since each command is executed in a separate container, disk writes are not
+// typically visible between containers.  To facilitate the sharing of files
+// between commands, the $TMPDIR variable is set to a writeable path on the
+// attached disk.  Files written to this location are not automatically
+// delocalized.
 //
 // As a convenience, the tool will automatically use the google/cloud-sdk image
 // whenever the command line starts with gsutil or gcloud, and will
@@ -64,20 +69,17 @@ package run
 // values from the host environment (unless the value has been overwritten by a
 // previous export command).
 //
-// If any command references '/tmp' the attached persistent disk is mounted
-// there, read-write.
-//
 // If the --output flag is specified, an action is appended that copies the
 // combined pipeline output to the specified GCS path.
 //
 // The --dry-run flag can be used to see what pipeline would be produced
 // without executing it.
 //
-// Example 1: Simple 'hello world' script
+// Example: Simple 'hello world' script
 //
 //    echo "Hello World!"
 //
-// Example 2: Simple 'hello world' actions file
+// Example: Simple 'hello world' actions file
 //
 //    [
 //      {
@@ -88,25 +90,17 @@ package run
 //      }
 //    ]
 //
-// Example 3: Background action script
+// Example: Background action script
 //
 //    while true; do echo "Hello background world!"; sleep 1; done &
 //    sleep 5
 //    echo "Hello foreground world!"
 //
-// Example 4: BAM indexing script
-//
-//    export BAM=NA12892_S1.bam
-//    export BAI=${BAM}.bai
-//    gsutil cp gs://my-bucket/${BAM} /tmp
-//    index /tmp/${BAM} /tmp/${BAI} # image=gcr.io/genomics-tools/samtools
-//    gsutil cp /tmp/${BAI} gs://my-bucket/
-//
-// Example 5: Script to SHA1 sum a file (using --inputs and --outputs).
+// Example: Script to SHA1 sum a file (using --inputs and --outputs).
 //
 //    sha1sum ${INPUT0} > ${OUTPUT0}
 //
-// Example 6: Using netcat to dump logs for the running pipeline
+// Example: Using netcat to dump logs for the running pipeline
 //
 //    nc -n -l -p 1234 -e tail -f /google/logs/output & # ports=1234:22
 //
@@ -120,7 +114,6 @@ import (
 	"os"
 	"os/signal"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -134,6 +127,8 @@ import (
 )
 
 var (
+	googleRoot = &genomics.Mount{Disk: "google", Path: "/mnt/google"}
+
 	flags = flag.NewFlagSet("", flag.ExitOnError)
 
 	basePath       = flags.String("base-path", "", "optional API service base path")
@@ -153,12 +148,6 @@ var (
 	cloudSDKImage  = flags.String("cloud_sdk_image", "google/cloud-sdk:alpine", "the cloud SDK image to use")
 	timeout        = flags.Duration("timeout", 0, "how long to wait before the operation is abandoned")
 	defaultImage   = flags.String("image", "bash", "the default image to use when executing commands")
-)
-
-const (
-	inputRoot  = "/mnt/input"
-	outputRoot = "/mnt/output"
-	diskName   = "shared"
 )
 
 func Invoke(ctx context.Context, service *genomics.Service, project string, arguments []string) error {
@@ -230,28 +219,33 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 	environment := make(map[string]string)
 	filenames := make(map[string]int)
 
-	var localizers, delocalizers []*genomics.Action
+	var googlePaths []string
+	googlePath := func(directory string) string {
+		path := path.Join(googleRoot.Path, directory)
+		googlePaths = append(googlePaths, path)
+		return path
+	}
+
+	inputRoot := googlePath("input")
+	outputRoot := googlePath("output")
+	environment["TMPDIR"] = googlePath("tmp")
+
+	var localizers []*genomics.Action
 	for i, input := range listOf(*inputs) {
-		filenames[path.Base(input)]++
-		filename := filepath.Join(inputRoot, path.Base(input))
-		localizers = append(localizers, &genomics.Action{
-			ImageUri: *cloudSDKImage,
-			Commands: []string{"gsutil", "-q", "cp", input, filename},
-			Mounts:   []*genomics.Mount{{Disk: diskName, Path: inputRoot}},
-		})
+		filename := path.Join(inputRoot, path.Base(input))
+		filenames[filename]++
+		localizers = append(localizers, gsutil("cp", input, filename))
 		environment[fmt.Sprintf("INPUT%d", i)] = filename
 	}
+
+	var delocalizers []*genomics.Action
 	for i, output := range listOf(*outputs) {
-		filenames[path.Base(output)]++
-		filename := filepath.Join(outputRoot, path.Base(output))
-		delocalizers = append(delocalizers, &genomics.Action{
-			ImageUri: *cloudSDKImage,
-			Commands: []string{"gsutil", "-q", "cp", filename, output},
-			Flags:    []string{"ALWAYS_RUN"},
-			Mounts:   []*genomics.Mount{{Disk: diskName, Path: outputRoot, ReadOnly: true}},
-		})
+		filename := path.Join(outputRoot, path.Base(output))
+		filenames[filename]++
+		delocalizers = append(delocalizers, gsutil("cp", filename, output))
 		environment[fmt.Sprintf("OUTPUT%d", i)] = filename
 	}
+
 	for filename, count := range filenames {
 		if count > 1 {
 			return nil, fmt.Errorf("duplicate filename %q is not supported", filename)
@@ -259,11 +253,9 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 	}
 
 	if *output != "" {
-		delocalizers = append(delocalizers, &genomics.Action{
-			ImageUri: *cloudSDKImage,
-			Commands: []string{"gsutil", "-q", "cp", "/google/logs/output", *output},
-			Flags:    []string{"ALWAYS_RUN"},
-		})
+		action := gsutil("cp", "/google/logs/output", *output)
+		action.Flags = []string{"ALWAYS_RUN"}
+		delocalizers = append(delocalizers, action)
 	}
 
 	var actions []*genomics.Action
@@ -293,8 +285,12 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 				ServiceAccount: &genomics.ServiceAccount{Scopes: listOf(*scopes)},
 			},
 		},
-		Actions:     append(localizers, append(actions, delocalizers...)...),
 		Environment: environment,
+	}
+
+	pipeline.Actions = []*genomics.Action{mkdir(googlePaths...)}
+	for _, v := range [][]*genomics.Action{localizers, actions, delocalizers} {
+		pipeline.Actions = append(pipeline.Actions, v...)
 	}
 
 	addRequiredDisks(pipeline)
@@ -409,7 +405,6 @@ func parse(line string, localEnv, globalEnv map[string]string) (*genomics.Action
 	}
 
 	image := detectImage(commands, options)
-	mounts := detectMounts(commands)
 	commands = []string{"bash", "-c", strings.Join(commands, " ")}
 
 	action := &genomics.Action{
@@ -417,7 +412,7 @@ func parse(line string, localEnv, globalEnv map[string]string) (*genomics.Action
 		Commands:    commands,
 		Flags:       flags,
 		Environment: localEnv,
-		Mounts:      mounts,
+		Mounts:      []*genomics.Mount{googleRoot},
 	}
 
 	if v, ok := options["ports"]; ok {
@@ -438,29 +433,6 @@ func detectImage(command []string, options map[string]string) string {
 		return *cloudSDKImage
 	}
 	return *defaultImage
-}
-
-func detectMounts(commands []string) []*genomics.Mount {
-	var mounts []*genomics.Mount
-	if findReference("/tmp", commands) {
-		mounts = append(mounts, &genomics.Mount{Disk: diskName, Path: "/tmp"})
-	}
-	if findReference(outputRoot, commands) {
-		mounts = append(mounts, &genomics.Mount{Disk: diskName, Path: outputRoot})
-	}
-	if findReference(inputRoot, commands) {
-		mounts = append(mounts, &genomics.Mount{Disk: diskName, Path: inputRoot, ReadOnly: true})
-	}
-	return mounts
-}
-
-func findReference(root string, commands []string) bool {
-	for _, command := range commands {
-		if strings.HasPrefix(command, root) {
-			return true
-		}
-	}
-	return false
 }
 
 func addRequiredDisks(pipeline *genomics.Pipeline) {
@@ -570,6 +542,22 @@ func parsePorts(input string) (map[string]int64, error) {
 
 func isRuntimeVariable(name string) bool {
 	return name == "GOOGLE_PIPELINE_FAILED" || name == "GOOGLE_LAST_EXIT_STATUS"
+}
+
+func gsutil(arguments ...string) *genomics.Action {
+	return &genomics.Action{
+		ImageUri: *cloudSDKImage,
+		Commands: append([]string{"gsutil", "-q"}, arguments...),
+		Mounts:   []*genomics.Mount{googleRoot},
+	}
+}
+
+func mkdir(arguments ...string) *genomics.Action {
+	return &genomics.Action{
+		ImageUri: *cloudSDKImage,
+		Commands: append([]string{"mkdir", "-p"}, arguments...),
+		Mounts:   []*genomics.Mount{googleRoot},
+	}
 }
 
 func cancelOnInterruptOrTimeout(ctx context.Context, service *genomics.Service, name string, timeout time.Duration) {
