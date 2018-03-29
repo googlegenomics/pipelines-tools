@@ -208,13 +208,6 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		return &req, nil
 	}
 
-	labels := make(map[string]string)
-	if *name != "" {
-		labels["name"] = *name
-	}
-
-	filenames := make(map[string]int)
-
 	var googlePaths []string
 	googlePath := func(directory string) string {
 		path := path.Join(googleRoot.Path, directory)
@@ -225,6 +218,8 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 	inputRoot := googlePath("input")
 	outputRoot := googlePath("output")
 	environment["TMPDIR"] = googlePath("tmp")
+
+	filenames := make(map[string]int)
 
 	var localizers []*genomics.Action
 	for i, input := range listOf(*inputs) {
@@ -291,6 +286,11 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 
 	addRequiredDisks(pipeline)
 	addRequiredScopes(pipeline)
+
+	labels := make(map[string]string)
+	if *name != "" {
+		labels["name"] = *name
+	}
 
 	return &genomics.RunPipelineRequest{Pipeline: pipeline, Labels: labels}, nil
 }
