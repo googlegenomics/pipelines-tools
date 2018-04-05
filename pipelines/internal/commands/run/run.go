@@ -55,6 +55,11 @@ package run
 // GCS destinations may be specified with the --outputs flag.  Each output file
 // will be exposed by via the environment variables $OUTPUT0 to $OUTPUTN.
 //
+// Entire directories or even subtrees can be localized or delocalized by
+// appending the suffixes '/* or '/**' respectively.  The $OUTPUTN variable
+// will no longer point to a file, but to a directory where files are either
+// copied to (for --inputs) or from (for --outputs).
+//
 // Since each command is executed in a separate container, disk writes are not
 // typically visible between containers.  To facilitate the sharing of files
 // between commands, the $TMPDIR variable is set to a writeable path on the
@@ -228,9 +233,9 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 
 	var localizers []*genomics.Action
 	for input, name := range namedListOf(*inputs, "INPUT") {
-		filename := gcsJoin(inputRoot, input)
+		filename := gcsJoin(inputRoot, strings.TrimRight(input, "*"))
 		if isGCSPath(input) {
-			localizers = append(localizers, gsutil("cp", input, filename))
+			localizers = append(localizers, gcsTransfer(input)(input, filename))
 		} else {
 			action, err := upload(input, filename)
 			if err != nil {
@@ -239,14 +244,21 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 			localizers = append(localizers, action)
 		}
 		environment[name] = filename
+		if strings.HasSuffix(input, "*") {
+			directories = append(directories, filename)
+		}
 	}
 
 	var delocalizers []*genomics.Action
 	for output, name := range namedListOf(*outputs, "OUTPUT") {
-		filename := gcsJoin(outputRoot, output)
-		delocalizers = append(delocalizers, gsutil("cp", filename, output))
+		filename := gcsJoin(outputRoot, strings.TrimRight(output, "*"))
+		delocalizers = append(delocalizers, gcsTransfer(output)(filename, output))
 		environment[name] = filename
-		directories = append(directories, path.Dir(filename))
+		if strings.HasSuffix(output, "*") {
+			directories = append(directories, filename)
+		} else {
+			directories = append(directories, path.Dir(filename))
+		}
 	}
 
 	if *output != "" {
@@ -519,11 +531,7 @@ func parsePorts(input string) (map[string]int64, error) {
 }
 
 func gsutil(arguments ...string) *genomics.Action {
-	return &genomics.Action{
-		ImageUri: *cloudSDKImage,
-		Commands: append([]string{"gsutil", "-q"}, arguments...),
-		Mounts:   []*genomics.Mount{googleRoot},
-	}
+	return bash("gsutil -q " + strings.Join(arguments, " "))
 }
 
 func upload(input, output string) (*genomics.Action, error) {
@@ -602,4 +610,18 @@ func gcsJoin(input ...string) string {
 		return gcsPrefix + path.Join(parts...)
 	}
 	return path.Join(parts...)
+}
+
+func gcsTransfer(remote string) func(from, to string) *genomics.Action {
+	return func(from, to string) *genomics.Action {
+		from = strings.TrimRight(from, "*")
+		to = strings.TrimRight(to, "*")
+		if strings.HasSuffix(remote, "/**") {
+			return gsutil("cp", "-r", gcsJoin(from, "*"), to)
+		}
+		if strings.HasSuffix(remote, "/*") {
+			return gsutil("cp", gcsJoin(from, "*"), to)
+		}
+		return gsutil("cp", from, to)
+	}
 }
