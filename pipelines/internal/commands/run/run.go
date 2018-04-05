@@ -46,9 +46,13 @@ package run
 // flag.  These files will be copied onto the VM.  The names of the localized
 // files are exposed via the environment variables $INPUT0 to $INPUTN.
 //
-// Similarly, destinations in GCS may be specified with the --outputs flag.
-// Each output file will be exposed by via the environment variables $OUTPUT0
-// to $OUTPUTN.
+// In addition to GCS paths, small local files may also be specified as an
+// input.  The files will be packaged as part of the request so there are
+// significant limitations on the size of the file.  This functionality should
+// only be used for inputs such as configuration files or short scripts.
+//
+// GCS destinations may be specified with the --outputs flag.  Each output file
+// will be exposed by via the environment variables $OUTPUT0 to $OUTPUTN.
 //
 // Since each command is executed in a separate container, disk writes are not
 // typically visible between containers.  To facilitate the sharing of files
@@ -99,10 +103,12 @@ package run
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/signal"
 	"path"
@@ -225,7 +231,15 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 	for i, input := range listOf(*inputs) {
 		filename := path.Join(inputRoot, path.Base(input))
 		filenames[filename]++
-		localizers = append(localizers, gsutil("cp", input, filename))
+		if strings.HasPrefix(input, "gs://") {
+			localizers = append(localizers, gsutil("cp", input, filename))
+		} else {
+			action, err := upload(input, filename)
+			if err != nil {
+				return nil, fmt.Errorf("processing %q: %v", input, err)
+			}
+			localizers = append(localizers, action)
+		}
 		environment[fmt.Sprintf("INPUT%d", i)] = filename
 	}
 
@@ -505,6 +519,21 @@ func gsutil(arguments ...string) *genomics.Action {
 		Commands: append([]string{"gsutil", "-q"}, arguments...),
 		Mounts:   []*genomics.Mount{googleRoot},
 	}
+}
+
+func upload(input, output string) (*genomics.Action, error) {
+	raw, err := ioutil.ReadFile(input)
+	if err != nil {
+		return nil, fmt.Errorf("reading input file: %v", err)
+	}
+	encoded := base64.StdEncoding.EncodeToString(raw)
+	command := fmt.Sprintf("echo %q | base64 -d > %q", encoded, output)
+	return &genomics.Action{
+		ImageUri:   *cloudSDKImage,
+		Commands:   []string{"-c", command},
+		Mounts:     []*genomics.Mount{googleRoot},
+		Entrypoint: "bash",
+	}, nil
 }
 
 func mkdir(arguments ...string) *genomics.Action {
