@@ -138,7 +138,7 @@ var (
 	diskSizeGb     = flags.Int("disk-size", 500, "the attached disk size (in GB)")
 	bootDiskSizeGb = flags.Int("boot-disk-size", 0, "if non-zero, specifies the boot disk size (in GB)")
 	privateAddress = flags.Bool("private-address", false, "use a private IP address")
-	cloudSDKImage  = flags.String("cloud_sdk_image", "google/cloud-sdk:alpine", "the cloud SDK image to use")
+	cloudSDKImage  = flags.String("cloud-sdk-image", "google/cloud-sdk:alpine", "the cloud SDK image to use")
 	timeout        = flags.Duration("timeout", 0, "how long to wait before the operation is abandoned")
 	defaultImage   = flags.String("image", "bash", "the default image to use when executing commands")
 )
