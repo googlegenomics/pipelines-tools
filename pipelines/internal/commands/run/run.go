@@ -113,6 +113,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -215,24 +216,20 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		return &req, nil
 	}
 
-	var googlePaths []string
 	googlePath := func(directory string) string {
-		path := path.Join(googleRoot.Path, directory)
-		googlePaths = append(googlePaths, path)
-		return path
+		return path.Join(googleRoot.Path, directory)
 	}
 
 	inputRoot := googlePath("input")
 	outputRoot := googlePath("output")
-	environment["TMPDIR"] = googlePath("tmp")
 
-	filenames := make(map[string]int)
+	directories := []string{googlePath("tmp")}
+	environment["TMPDIR"] = directories[0]
 
 	var localizers []*genomics.Action
 	for input, name := range namedListOf(*inputs, "INPUT") {
-		filename := path.Join(inputRoot, path.Base(input))
-		filenames[filename]++
-		if strings.HasPrefix(input, "gs://") {
+		filename := gcsJoin(inputRoot, input)
+		if isGCSPath(input) {
 			localizers = append(localizers, gsutil("cp", input, filename))
 		} else {
 			action, err := upload(input, filename)
@@ -246,16 +243,10 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 
 	var delocalizers []*genomics.Action
 	for output, name := range namedListOf(*outputs, "OUTPUT") {
-		filename := path.Join(outputRoot, path.Base(output))
-		filenames[filename]++
+		filename := gcsJoin(outputRoot, output)
 		delocalizers = append(delocalizers, gsutil("cp", filename, output))
 		environment[name] = filename
-	}
-
-	for filename, count := range filenames {
-		if count > 1 {
-			return nil, fmt.Errorf("duplicate filename %q is not supported", filename)
-		}
+		directories = append(directories, path.Dir(filename))
 	}
 
 	if *output != "" {
@@ -294,7 +285,7 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		Environment: environment,
 	}
 
-	pipeline.Actions = []*genomics.Action{mkdir(googlePaths...)}
+	pipeline.Actions = []*genomics.Action{mkdir(directories)}
 	for _, v := range [][]*genomics.Action{localizers, actions, delocalizers} {
 		pipeline.Actions = append(pipeline.Actions, v...)
 	}
@@ -541,21 +532,37 @@ func upload(input, output string) (*genomics.Action, error) {
 		return nil, fmt.Errorf("reading input file: %v", err)
 	}
 	encoded := base64.StdEncoding.EncodeToString(raw)
-	command := fmt.Sprintf("echo %q | base64 -d > %q", encoded, output)
-	return &genomics.Action{
-		ImageUri:   *cloudSDKImage,
-		Commands:   []string{"-c", command},
-		Mounts:     []*genomics.Mount{googleRoot},
-		Entrypoint: "bash",
-	}, nil
+	return bash(
+		fmt.Sprintf("mkdir -p %q", path.Dir(output)),
+		fmt.Sprintf("echo %q | base64 -d > %q", encoded, output),
+	), nil
 }
 
-func mkdir(arguments ...string) *genomics.Action {
+func bash(commands ...string) *genomics.Action {
 	return &genomics.Action{
-		ImageUri: *cloudSDKImage,
-		Commands: append([]string{"mkdir", "-p"}, arguments...),
-		Mounts:   []*genomics.Mount{googleRoot},
+		ImageUri:   *cloudSDKImage,
+		Commands:   []string{"-c", strings.Join(commands, " && ")},
+		Mounts:     []*genomics.Mount{googleRoot},
+		Entrypoint: "bash",
 	}
+}
+
+func mkdir(directories []string) *genomics.Action {
+	if len(directories) == 0 {
+		return nil
+	}
+
+	sort.Strings(directories)
+	arguments := []string{directories[0]}
+	for _, directory := range directories[1:] {
+		if strings.HasPrefix(directory, arguments[len(arguments)-1]) {
+			arguments[len(arguments)-1] = directory
+		} else {
+			arguments = append(arguments, directory)
+		}
+	}
+
+	return bash("mkdir -p " + strings.Join(arguments, " "))
 }
 
 func cancelOnInterruptOrTimeout(ctx context.Context, service *genomics.Service, name string, timeout time.Duration) {
@@ -578,4 +585,21 @@ func cancelOnInterruptOrTimeout(ctx context.Context, service *genomics.Service, 
 			fmt.Printf("Failed to cancel operation: %v\n", err)
 		}
 	}()
+}
+
+const gcsPrefix = "gs://"
+
+func isGCSPath(input string) bool {
+	return strings.HasPrefix(input, gcsPrefix)
+}
+
+func gcsJoin(input ...string) string {
+	parts := make([]string, len(input))
+	for i, part := range input {
+		parts[i] = strings.TrimPrefix(part, gcsPrefix)
+	}
+	if len(input) > 0 && isGCSPath(input[0]) {
+		return gcsPrefix + path.Join(parts...)
+	}
+	return path.Join(parts...)
 }
