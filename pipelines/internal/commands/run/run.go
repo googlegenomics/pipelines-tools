@@ -40,7 +40,7 @@ package run
 //
 // The container image used to execute the command can be changed using the
 // --image flag or on a per command basis using "# image=...".  The image must
-// contain a 'bash' binary and have the entrypoint set to a working shell.
+// contain a 'bash' binary.
 //
 // Files from GCS can be specified as inputs to the pipeline using the --inputs
 // flag.  These files will be copied onto the VM.  The names of the localized
@@ -382,10 +382,11 @@ func parse(line string) (*genomics.Action, error) {
 	}
 
 	action := &genomics.Action{
-		ImageUri: detectImage(commands, options),
-		Commands: []string{"bash", "-c", strings.Join(commands, " ")},
-		Flags:    flags,
-		Mounts:   []*genomics.Mount{googleRoot},
+		ImageUri:   detectImage(commands, options),
+		Commands:   []string{"-c", strings.Join(commands, " ")},
+		Flags:      flags,
+		Mounts:     []*genomics.Mount{googleRoot},
+		Entrypoint: "bash",
 	}
 
 	if v, ok := options["ports"]; ok {
