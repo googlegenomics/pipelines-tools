@@ -44,7 +44,8 @@ package run
 //
 // Files from GCS can be specified as inputs to the pipeline using the --inputs
 // flag.  These files will be copied onto the VM.  The names of the localized
-// files are exposed via the environment variables $INPUT0 to $INPUTN.
+// files are exposed via the environment variables $INPUT0 to $INPUTN, or, if
+// the parameters have the form NAME=..., the $NAME environment variable.
 //
 // In addition to GCS paths, small local files may also be specified as an
 // input.  The files will be packaged as part of the request so there are
@@ -228,7 +229,7 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 	filenames := make(map[string]int)
 
 	var localizers []*genomics.Action
-	for i, input := range listOf(*inputs) {
+	for input, name := range namedListOf(*inputs, "INPUT") {
 		filename := path.Join(inputRoot, path.Base(input))
 		filenames[filename]++
 		if strings.HasPrefix(input, "gs://") {
@@ -240,15 +241,15 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 			}
 			localizers = append(localizers, action)
 		}
-		environment[fmt.Sprintf("INPUT%d", i)] = filename
+		environment[name] = filename
 	}
 
 	var delocalizers []*genomics.Action
-	for i, output := range listOf(*outputs) {
+	for output, name := range namedListOf(*outputs, "OUTPUT") {
 		filename := path.Join(outputRoot, path.Base(output))
 		filenames[filename]++
 		delocalizers = append(delocalizers, gsutil("cp", filename, output))
-		environment[fmt.Sprintf("OUTPUT%d", i)] = filename
+		environment[name] = filename
 	}
 
 	for filename, count := range filenames {
@@ -448,6 +449,18 @@ func listOf(input string) []string {
 		return nil
 	}
 	return strings.Split(input, ",")
+}
+
+func namedListOf(input, defaultPrefix string) map[string]string {
+	output := make(map[string]string)
+	for n, input := range strings.Split(input, ",") {
+		if i := strings.Index(input, "="); i > 0 {
+			output[input[i+1:]] = input[:i]
+		} else if input != "" {
+			output[input] = fmt.Sprintf("%s%d", defaultPrefix, n)
+		}
+	}
+	return output
 }
 
 func expandZones(project string, input []string) ([]string, error) {
