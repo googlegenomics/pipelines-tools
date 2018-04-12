@@ -149,6 +149,7 @@ var (
 	inputs         = flags.String("inputs", "", "comma separated list of GCS objects to localize to the VM")
 	outputs        = flags.String("outputs", "", "comma separated list of GCS objects to delocalize from the VM")
 	diskSizeGb     = flags.Int("disk-size", 500, "the attached disk size (in GB)")
+	diskImage      = flags.String("disk-image", "", "optional image to pre-load onto the attached disk")
 	bootDiskSizeGb = flags.Int("boot-disk-size", 0, "if non-zero, specifies the boot disk size (in GB)")
 	privateAddress = flags.Bool("private-address", false, "use a private IP address")
 	cloudSDKImage  = flags.String("cloud-sdk-image", "google/cloud-sdk:alpine", "the cloud SDK image to use")
@@ -423,10 +424,14 @@ func addRequiredDisks(pipeline *genomics.Pipeline) {
 
 	vm := pipeline.Resources.VirtualMachine
 	for name := range disks {
-		vm.Disks = append(vm.Disks, &genomics.Disk{
+		disk := &genomics.Disk{
 			Name:   name,
 			SizeGb: int64(*diskSizeGb),
-		})
+		}
+		if *diskImage != "" && name == googleRoot.Disk {
+			disk.SourceImage = *diskImage
+		}
+		vm.Disks = append(vm.Disks, disk)
 	}
 	if *bootDiskSizeGb > 0 {
 		vm.BootDiskSizeGb = int64(*bootDiskSizeGb)
