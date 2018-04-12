@@ -222,7 +222,7 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 	}
 
 	googlePath := func(directory string) string {
-		return path.Join(googleRoot.Path, directory)
+		return path.Join(googleRoot.Path, ".google", directory)
 	}
 
 	inputRoot := googlePath("input")
