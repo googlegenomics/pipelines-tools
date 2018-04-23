@@ -155,6 +155,7 @@ var (
 	cloudSDKImage  = flags.String("cloud-sdk-image", "google/cloud-sdk:alpine", "the cloud SDK image to use")
 	timeout        = flags.Duration("timeout", 0, "how long to wait before the operation is abandoned")
 	defaultImage   = flags.String("image", "bash", "the default image to use when executing commands")
+	attempts       = flag.Uint("attempts", 1, "number of attempts on non-fatal failure")
 )
 
 func init() {
@@ -180,30 +181,55 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 	}
 	fmt.Printf("%s\n", encoded)
 
+	if *attempts < 1 {
+		return fmt.Errorf("The number of attempts must be > 1")
+	}
+
 	if *dryRun {
 		return nil
 	}
 
-	lro, err := service.Pipelines.Run(req).Context(ctx).Do()
-	if err != nil {
-		if err, ok := err.(*googleapi.Error); ok {
-			return fmt.Errorf("starting pipeline: %q: %q", err.Message, err.Body)
+	attempt:=uint(1)
+	for {
+		lro, err := service.Pipelines.Run(req).Context(ctx).Do()
+		if err != nil {
+			if err, ok := err.(*googleapi.Error); ok {
+				return fmt.Errorf("starting pipeline: %q: %q", err.Message, err.Body)
+			}
+			return fmt.Errorf("starting pipeline: %v", err)
 		}
-		return fmt.Errorf("starting pipeline: %v", err)
+
+		cancelOnInterruptOrTimeout(ctx, service, lro.Name, *timeout)
+
+		fmt.Printf("Pipeline running as %q\n", lro.Name)
+		if *output != "" {
+			fmt.Printf("Output will be written to %q\n", *output)
+		}
+
+		if !*wait {
+			return nil
+		}
+
+		if err := watch.Invoke(ctx, service, project, []string{lro.Name}); err != nil {
+			if e, ok := err.(common.PipelineExecutionError); ok && e.IsRetriable() {
+				// non-fatal error
+				if(attempt >= *attempts) {
+					fmt.Printf("Non fatal error occured. Reached maximum number of attempts\n")
+					return err
+				}
+				attempt++
+				fmt.Printf("Non fatal error occured: %v\n", e);
+				fmt.Printf("Retrying operation. Attempt: %d\n", attempt);
+				continue;
+			} else {
+				// fatal error
+				return err
+			}
+		} else {
+			// success
+			return nil
+		}
 	}
-
-	cancelOnInterruptOrTimeout(ctx, service, lro.Name, *timeout)
-
-	fmt.Printf("Pipeline running as %q\n", lro.Name)
-	if *output != "" {
-		fmt.Printf("Output will be written to %q\n", *output)
-	}
-
-	if !*wait {
-		return nil
-	}
-
-	return watch.Invoke(ctx, service, project, []string{lro.Name})
 }
 
 func parseJSON(filename string, v interface{}) error {

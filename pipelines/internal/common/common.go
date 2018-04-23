@@ -6,6 +6,10 @@ import (
 	"fmt"
 	"path"
 	"strings"
+
+	"github.com/google/go-genproto/googleapis/rpc/code"
+	genomics "google.golang.org/api/genomics/v2alpha1"
+
 )
 
 // ExpandOperationName adds the project and operations prefixes to name (if
@@ -50,4 +54,30 @@ func (m *MapFlagValue) Set(input string) error {
 		m.Values[input] = ""
 	}
 	return nil
+}
+
+// PipelineExecutionError is an error returned by the Genomics API
+// during a pipeline execution
+type PipelineExecutionError genomics.Status
+
+func (status PipelineExecutionError) Error() string {
+	return fmt.Sprintf( "executing pipeline: %d : %s", status.Code, status.Message)
+}
+
+// Map that indicates which Genomics errors are fatal and
+// for which the user should retry the operation.
+// Errors that are not present or have the value "false" are fatal and
+// should not be retried.
+var retriableErrors map[string]bool= map[string]bool{
+	"UNAVAILABLE": true,
+	"ABORTED" : true,
+	"FAILED_PRECONDITION" : false,
+	"CANCELLED": false,
+	"INVALID_ARGUMENT" : false,
+}
+
+// IsRetriable indicates if the user should retry the operation after receiving
+// the current error.
+func (status PipelineExecutionError) IsRetriable() bool {
+	return retriableErrors[code.Code_name[int32(status.Code)]]
 }
