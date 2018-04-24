@@ -155,6 +155,7 @@ var (
 	cloudSDKImage  = flags.String("cloud-sdk-image", "google/cloud-sdk:alpine", "the cloud SDK image to use")
 	timeout        = flags.Duration("timeout", 0, "how long to wait before the operation is abandoned")
 	defaultImage   = flags.String("image", "bash", "the default image to use when executing commands")
+	attempts       = flags.Uint("attempts", 1, "number of attempts on non-fatal failure")
 )
 
 func init() {
@@ -184,26 +185,42 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 		return nil
 	}
 
-	lro, err := service.Pipelines.Run(req).Context(ctx).Do()
-	if err != nil {
-		if err, ok := err.(*googleapi.Error); ok {
-			return fmt.Errorf("starting pipeline: %q: %q", err.Message, err.Body)
+	abort := make(chan os.Signal, 1)
+	signal.Notify(abort, os.Interrupt)
+
+	attempt := uint(1)
+	for {
+		lro, err := service.Pipelines.Run(req).Context(ctx).Do()
+		if err != nil {
+			if err, ok := err.(*googleapi.Error); ok {
+				return fmt.Errorf("starting pipeline: %q: %q", err.Message, err.Body)
+			}
+			return fmt.Errorf("starting pipeline: %v", err)
 		}
-		return fmt.Errorf("starting pipeline: %v", err)
-	}
 
-	cancelOnInterruptOrTimeout(ctx, service, lro.Name, *timeout)
+		cancelOnInterruptOrTimeout(ctx, service, lro.Name, *timeout, abort)
 
-	fmt.Printf("Pipeline running as %q\n", lro.Name)
-	if *output != "" {
-		fmt.Printf("Output will be written to %q\n", *output)
-	}
+		fmt.Printf("Pipeline running as %q\n", lro.Name)
+		if *output != "" {
+			fmt.Printf("Output will be written to %q\n", *output)
+		}
 
-	if !*wait {
+		if !*wait {
+			return nil
+		}
+
+		if err := watch.Invoke(ctx, service, project, []string{lro.Name}); err != nil {
+			if err, ok := err.(common.PipelineExecutionError); ok && err.IsRetriable() {
+				if attempt < *attempts {
+					attempt++
+					fmt.Printf("Execution failed: %v (will retry, attempt %d)\n", err, attempt)
+					continue
+				}
+			}
+			return err
+		}
 		return nil
 	}
-
-	return watch.Invoke(ctx, service, project, []string{lro.Name})
 }
 
 func parseJSON(filename string, v interface{}) error {
@@ -578,14 +595,12 @@ func mkdir(directories []string) *genomics.Action {
 	return bash("mkdir -p " + strings.Join(arguments, " "))
 }
 
-func cancelOnInterruptOrTimeout(ctx context.Context, service *genomics.Service, name string, timeout time.Duration) {
+func cancelOnInterruptOrTimeout(ctx context.Context, service *genomics.Service, name string, timeout time.Duration, abort chan os.Signal) {
 	var ticker <-chan time.Time
 	if timeout > 0 {
 		ticker = time.After(timeout)
 	}
 
-	abort := make(chan os.Signal, 1)
-	signal.Notify(abort, os.Interrupt)
 	go func() {
 		select {
 		case <-abort:

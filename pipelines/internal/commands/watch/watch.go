@@ -46,7 +46,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 	}
 
 	if status, ok := result.(*genomics.Status); ok {
-		return fmt.Errorf("executing pipeline: %s", status.Message)
+		return common.PipelineExecutionError(*status)
 	}
 
 	fmt.Println("Pipeline execution completed")
