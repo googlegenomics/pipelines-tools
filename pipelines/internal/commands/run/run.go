@@ -189,7 +189,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 		return nil
 	}
 
-	attempt:=uint(1)
+	attempt := uint(1)
 	for {
 		lro, err := service.Pipelines.Run(req).Context(ctx).Do()
 		if err != nil {
@@ -213,14 +213,14 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 		if err := watch.Invoke(ctx, service, project, []string{lro.Name}); err != nil {
 			if e, ok := err.(common.PipelineExecutionError); ok && e.IsRetriable() {
 				// non-fatal error
-				if(attempt >= *attempts) {
+				if attempt >= *attempts {
 					fmt.Printf("Non fatal error occured. Reached maximum number of attempts\n")
 					return err
 				}
 				attempt++
-				fmt.Printf("Non fatal error occured: %v\n", e);
-				fmt.Printf("Retrying operation. Attempt: %d\n", attempt);
-				continue;
+				fmt.Printf("Non fatal error occured: %v\n", e)
+				fmt.Printf("Retrying operation. Attempt: %d\n", attempt)
+				continue
 			} else {
 				// fatal error
 				return err
