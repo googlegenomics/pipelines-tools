@@ -155,7 +155,7 @@ var (
 	cloudSDKImage  = flags.String("cloud-sdk-image", "google/cloud-sdk:alpine", "the cloud SDK image to use")
 	timeout        = flags.Duration("timeout", 0, "how long to wait before the operation is abandoned")
 	defaultImage   = flags.String("image", "bash", "the default image to use when executing commands")
-	attempts       = flag.Uint("attempts", 1, "number of attempts on non-fatal failure")
+	attempts       = flags.Uint("attempts", 1, "number of attempts on non-fatal failure")
 )
 
 func init() {
@@ -180,10 +180,6 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 		return fmt.Errorf("encoding request: %v", err)
 	}
 	fmt.Printf("%s\n", encoded)
-
-	if *attempts == 0 {
-		return fmt.Errorf("attempts must be non-zero")
-	}
 
 	if *dryRun {
 		return nil
