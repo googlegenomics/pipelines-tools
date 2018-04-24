@@ -181,13 +181,16 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 	}
 	fmt.Printf("%s\n", encoded)
 
-	if *attempts < 1 {
-		return fmt.Errorf("The number of attempts must be > 1")
+	if *attempts == 0 {
+		return fmt.Errorf("attempts must be non-zero")
 	}
 
 	if *dryRun {
 		return nil
 	}
+
+	abort := make(chan os.Signal, 1)
+	signal.Notify(abort, os.Interrupt)
 
 	attempt := uint(1)
 	for {
@@ -199,7 +202,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 			return fmt.Errorf("starting pipeline: %v", err)
 		}
 
-		cancelOnInterruptOrTimeout(ctx, service, lro.Name, *timeout)
+		cancelOnInterruptOrTimeout(ctx, service, lro.Name, *timeout, abort)
 
 		fmt.Printf("Pipeline running as %q\n", lro.Name)
 		if *output != "" {
@@ -211,24 +214,16 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 		}
 
 		if err := watch.Invoke(ctx, service, project, []string{lro.Name}); err != nil {
-			if e, ok := err.(common.PipelineExecutionError); ok && e.IsRetriable() {
-				// non-fatal error
-				if attempt >= *attempts {
-					fmt.Printf("Non fatal error occured. Reached maximum number of attempts\n")
-					return err
+			if err, ok := err.(common.PipelineExecutionError); ok && err.IsRetriable() {
+				if attempt < *attempts {
+					attempt++
+					fmt.Printf("Execution failed: %v (will retry, attempt %d)\n", err, attempt)
+					continue
 				}
-				attempt++
-				fmt.Printf("Non fatal error occured: %v\n", e)
-				fmt.Printf("Retrying operation. Attempt: %d\n", attempt)
-				continue
-			} else {
-				// fatal error
-				return err
 			}
-		} else {
-			// success
-			return nil
+			return err
 		}
+		return nil
 	}
 }
 
@@ -604,14 +599,12 @@ func mkdir(directories []string) *genomics.Action {
 	return bash("mkdir -p " + strings.Join(arguments, " "))
 }
 
-func cancelOnInterruptOrTimeout(ctx context.Context, service *genomics.Service, name string, timeout time.Duration) {
+func cancelOnInterruptOrTimeout(ctx context.Context, service *genomics.Service, name string, timeout time.Duration, abort chan os.Signal) {
 	var ticker <-chan time.Time
 	if timeout > 0 {
 		ticker = time.After(timeout)
 	}
 
-	abort := make(chan os.Signal, 1)
-	signal.Notify(abort, os.Interrupt)
 	go func() {
 		select {
 		case <-abort:

@@ -59,24 +59,17 @@ func (m *MapFlagValue) Set(input string) error {
 // during a pipeline execution
 type PipelineExecutionError genomics.Status
 
-func (status PipelineExecutionError) Error() string {
-	return fmt.Sprintf("executing pipeline: %d : %s", status.Code, status.Message)
-}
-
-// Map that indicates which Genomics errors are fatal and
-// for which the user should retry the operation.
-// Errors that are not present or have the value "false" are fatal and
-// should not be retried.
-var retriableErrors map[string]bool = map[string]bool{
-	"UNAVAILABLE":         true,
-	"ABORTED":             true,
-	"FAILED_PRECONDITION": false,
-	"CANCELLED":           false,
-	"INVALID_ARGUMENT":    false,
+func (err PipelineExecutionError) Error() string {
+	return fmt.Sprintf("executing pipeline: %d : %s", err.Code, err.Message)
 }
 
 // IsRetriable indicates if the user should retry the operation after receiving
 // the current error.
-func (status PipelineExecutionError) IsRetriable() bool {
-	return retriableErrors[code.Code_name[int32(status.Code)]]
+func (err PipelineExecutionError) IsRetriable() bool {
+	switch code.Code_name[int32(err.Code)] {
+	case "UNAVAILABLE", "ABORTED":
+		return true
+	default:
+		return false
+	}
 }
