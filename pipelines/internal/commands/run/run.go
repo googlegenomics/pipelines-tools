@@ -145,7 +145,6 @@ var (
 	dryRun         = flags.Bool("dry-run", false, "don't run, just show pipeline")
 	wait           = flags.Bool("wait", true, "wait for the pipeline to finish")
 	machineType    = flags.String("machine-type", "n1-standard-1", "machine type to create")
-	preemptible    = flags.Bool("preemptible", true, "use a preemptible VM")
 	inputs         = flags.String("inputs", "", "comma separated list of GCS objects to localize to the VM")
 	outputs        = flags.String("outputs", "", "comma separated list of GCS objects to delocalize from the VM")
 	diskSizeGb     = flags.Int("disk-size", 500, "the attached disk size (in GB)")
@@ -155,7 +154,8 @@ var (
 	cloudSDKImage  = flags.String("cloud-sdk-image", "google/cloud-sdk:alpine", "the cloud SDK image to use")
 	timeout        = flags.Duration("timeout", 0, "how long to wait before the operation is abandoned")
 	defaultImage   = flags.String("image", "bash", "the default image to use when executing commands")
-	attempts       = flags.Uint("attempts", 1, "number of attempts on non-fatal failure")
+	attempts       = flags.Uint("attempts", 0, "number of attempts on non-fatal failure, using non-preemptible VM")
+	pvmAttempts    = flags.Uint("pvm-attempts", 1, "number of attempts on non-fatal failure, using preemptible VM")
 )
 
 func init() {
@@ -181,15 +181,21 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 	}
 	fmt.Printf("%s\n", encoded)
 
-	if *dryRun {
+	if *dryRun || (*attempts == 0 && *pvmAttempts == 0) {
 		return nil
 	}
 
+	return runPipeline(ctx, service, req)
+}
+
+func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.RunPipelineRequest) error {
 	abort := make(chan os.Signal, 1)
 	signal.Notify(abort, os.Interrupt)
 
 	attempt := uint(1)
 	for {
+		req.Pipeline.Resources.VirtualMachine.Preemptible = (attempt <= *pvmAttempts)
+
 		lro, err := service.Pipelines.Run(req).Context(ctx).Do()
 		if err != nil {
 			if err, ok := err.(*googleapi.Error); ok {
@@ -200,7 +206,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 
 		cancelOnInterruptOrTimeout(ctx, service, lro.Name, *timeout, abort)
 
-		fmt.Printf("Pipeline running as %q\n", lro.Name)
+		fmt.Printf("Pipeline running as %q (attempt: %d, preemptible: %t)\n", lro.Name, attempt, req.Pipeline.Resources.VirtualMachine.Preemptible)
 		if *output != "" {
 			fmt.Printf("Output will be written to %q\n", *output)
 		}
@@ -209,11 +215,11 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 			return nil
 		}
 
-		if err := watch.Invoke(ctx, service, project, []string{lro.Name}); err != nil {
+		if err := watch.Invoke(ctx, service, req.Pipeline.Resources.ProjectId, []string{lro.Name}); err != nil {
 			if err, ok := err.(common.PipelineExecutionError); ok && err.IsRetriable() {
-				if attempt < *attempts {
+				if attempt < *pvmAttempts+*attempts {
 					attempt++
-					fmt.Printf("Execution failed: %v (will retry, attempt %d)\n", err, attempt)
+					fmt.Printf("Execution failed: %v\n", err)
 					continue
 				}
 			}
@@ -305,7 +311,6 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 			Zones:     zones,
 			VirtualMachine: &genomics.VirtualMachine{
 				MachineType: *machineType,
-				Preemptible: *preemptible,
 				Network: &genomics.Network{
 					UsePrivateAddress: *privateAddress,
 				},
