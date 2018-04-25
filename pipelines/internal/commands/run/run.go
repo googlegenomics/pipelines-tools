@@ -155,7 +155,7 @@ var (
 	timeout        = flags.Duration("timeout", 0, "how long to wait before the operation is abandoned")
 	defaultImage   = flags.String("image", "bash", "the default image to use when executing commands")
 	attempts       = flags.Uint("attempts", 0, "number of attempts on non-fatal failure, using non-preemptible VM")
-	pmbAttempts    = flags.Uint("preemptible-attempts", 1, "number of attempts on non-fatal failure, using preemptible VM")
+	pvmAttempts    = flags.Uint("pvm-attempts", 1, "number of attempts on non-fatal failure, using preemptible VM")
 )
 
 func init() {
@@ -175,26 +175,6 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 		return fmt.Errorf("building request: %v", err)
 	}
 
-	if *pmbAttempts > 0 {
-		if err := runPipeline(ctx, service, req, true, *pmbAttempts); err != nil {
-			if err, ok := err.(common.PipelineExecutionError); !ok || !err.IsRetriable() {
-				return err
-			}
-		} else {
-			return nil
-		}
-	}
-
-	if *attempts > 0 {
-		runPipeline(ctx, service, req, false, *attempts)
-	}
-
-	return nil
-}
-
-func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.RunPipelineRequest, preemptible bool, attempts uint) error {
-	req.Pipeline.Resources.VirtualMachine.Preemptible = preemptible
-
 	encoded, err := json.MarshalIndent(req, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encoding request: %v", err)
@@ -205,11 +185,21 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 		return nil
 	}
 
+	return runPipeline(ctx, service, req)
+}
+
+func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.RunPipelineRequest) error {
+	if *attempts == 0 && *pvmAttempts == 0 {
+		return nil
+	}
+
 	abort := make(chan os.Signal, 1)
 	signal.Notify(abort, os.Interrupt)
 
 	attempt := uint(1)
 	for {
+		req.Pipeline.Resources.VirtualMachine.Preemptible = (attempt <= *pvmAttempts)
+
 		lro, err := service.Pipelines.Run(req).Context(ctx).Do()
 		if err != nil {
 			if err, ok := err.(*googleapi.Error); ok {
@@ -220,7 +210,7 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 
 		cancelOnInterruptOrTimeout(ctx, service, lro.Name, *timeout, abort)
 
-		fmt.Printf("Pipeline running as %q\n", lro.Name)
+		fmt.Printf("Pipeline running as %q (preemptible VM:%t)\n", lro.Name, req.Pipeline.Resources.VirtualMachine.Preemptible)
 		if *output != "" {
 			fmt.Printf("Output will be written to %q\n", *output)
 		}
@@ -231,7 +221,7 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 
 		if err := watch.Invoke(ctx, service, req.Pipeline.Resources.ProjectId, []string{lro.Name}); err != nil {
 			if err, ok := err.(common.PipelineExecutionError); ok && err.IsRetriable() {
-				if attempt < attempts {
+				if attempt < *pvmAttempts+*attempts {
 					attempt++
 					fmt.Printf("Execution failed: %v (will retry, attempt %d)\n", err, attempt)
 					continue
