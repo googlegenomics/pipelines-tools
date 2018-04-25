@@ -181,7 +181,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 	}
 	fmt.Printf("%s\n", encoded)
 
-	if *dryRun {
+	if *dryRun || (*attempts == 0 && *pvmAttempts == 0) {
 		return nil
 	}
 
@@ -189,10 +189,6 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 }
 
 func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.RunPipelineRequest) error {
-	if *attempts == 0 && *pvmAttempts == 0 {
-		return nil
-	}
-
 	abort := make(chan os.Signal, 1)
 	signal.Notify(abort, os.Interrupt)
 
@@ -210,7 +206,7 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 
 		cancelOnInterruptOrTimeout(ctx, service, lro.Name, *timeout, abort)
 
-		fmt.Printf("Pipeline running as %q (preemptible VM:%t)\n", lro.Name, req.Pipeline.Resources.VirtualMachine.Preemptible)
+		fmt.Printf("Pipeline running as %q (attempt: %d, preemptible: %t)\n", lro.Name, attempt, req.Pipeline.Resources.VirtualMachine.Preemptible)
 		if *output != "" {
 			fmt.Printf("Output will be written to %q\n", *output)
 		}
@@ -223,7 +219,7 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 			if err, ok := err.(common.PipelineExecutionError); ok && err.IsRetriable() {
 				if attempt < *pvmAttempts+*attempts {
 					attempt++
-					fmt.Printf("Execution failed: %v (will retry, attempt %d)\n", err, attempt)
+					fmt.Printf("Execution failed: %v\n", err)
 					continue
 				}
 			}
