@@ -381,40 +381,32 @@ func parseScript(filename string) ([]*genomics.Action, error) {
 }
 
 func parse(line string) (*genomics.Action, error) {
-	var (
-		commands []string
-		flags    []string
-		options  = make(map[string]string)
-	)
+	var action genomics.Action
 
+	options := make(map[string]string)
 	if n := strings.Index(line, "#"); n >= 0 {
 		for _, option := range strings.Fields(strings.TrimSpace(line[n+1:])) {
 			if n := strings.Index(option, "="); n >= 0 {
 				options[option[:n]] = option[n+1:]
 			} else {
-				flags = append(flags, strings.ToUpper(option))
+				action.Flags = append(action.Flags, strings.ToUpper(option))
 			}
 		}
 		line = line[:n]
 	}
 
-	commands = strings.Fields(strings.TrimSpace(line))
-	if len(commands) == 0 {
-		return nil, nil
+	commands := strings.Fields(strings.TrimSpace(line))
+	if len(commands) > 0 {
+		if commands[len(commands)-1] == "&" {
+			action.Flags = append(action.Flags, "RUN_IN_BACKGROUND")
+			commands = commands[:len(commands)-1]
+		}
+		action.Commands = []string{"-c", strings.Join(commands, " ")}
+		action.Entrypoint = "bash"
 	}
 
-	if commands[len(commands)-1] == "&" {
-		flags = append(flags, "RUN_IN_BACKGROUND")
-		commands = commands[:len(commands)-1]
-	}
-
-	action := &genomics.Action{
-		ImageUri:   detectImage(commands, options),
-		Commands:   []string{"-c", strings.Join(commands, " ")},
-		Flags:      flags,
-		Mounts:     []*genomics.Mount{googleRoot},
-		Entrypoint: "bash",
-	}
+	action.ImageUri = detectImage(commands, options)
+	action.Mounts = []*genomics.Mount{googleRoot}
 
 	if v, ok := options["ports"]; ok {
 		ports, err := parsePorts(v)
@@ -423,14 +415,14 @@ func parse(line string) (*genomics.Action, error) {
 		}
 		action.PortMappings = ports
 	}
-	return action, nil
+	return &action, nil
 }
 
 func detectImage(command []string, options map[string]string) string {
 	if image, ok := options["image"]; ok {
 		return image
 	}
-	if isCloudCommand(command[0]) {
+	if len(command) > 0 && isCloudCommand(command[0]) {
 		return *cloudSDKImage
 	}
 	return *defaultImage
