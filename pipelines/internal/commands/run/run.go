@@ -156,6 +156,8 @@ var (
 	defaultImage   = flags.String("image", "bash", "the default image to use when executing commands")
 	attempts       = flags.Uint("attempts", 0, "number of attempts on non-fatal failure, using non-preemptible VM")
 	pvmAttempts    = flags.Uint("pvm-attempts", 1, "number of attempts on non-fatal failure, using preemptible VM")
+	gpus           = flags.Int("gpus", 0, "the number of GPUs to attach")
+	gpuType        = flags.String("gpu-type", "nvidia-tesla-k80", "the GPU type to attach")
 )
 
 func init() {
@@ -305,17 +307,27 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		return nil, fmt.Errorf("expanding zones: %v", err)
 	}
 
+	vm := &genomics.VirtualMachine{
+		MachineType: *machineType,
+		Network: &genomics.Network{
+			UsePrivateAddress: *privateAddress,
+		},
+		ServiceAccount: &genomics.ServiceAccount{Scopes: listOf(*scopes)},
+	}
+
+	if *gpus > 0 {
+		vm.Accelerators = append(vm.Accelerators, &genomics.Accelerator{
+			Type:  *gpuType,
+			Count: int64(*gpus),
+		})
+		vm.NvidiaDriverVersion = "390.46"
+	}
+
 	pipeline := &genomics.Pipeline{
 		Resources: &genomics.Resources{
-			ProjectId: project,
-			Zones:     zones,
-			VirtualMachine: &genomics.VirtualMachine{
-				MachineType: *machineType,
-				Network: &genomics.Network{
-					UsePrivateAddress: *privateAddress,
-				},
-				ServiceAccount: &genomics.ServiceAccount{Scopes: listOf(*scopes)},
-			},
+			ProjectId:      project,
+			Zones:          zones,
+			VirtualMachine: vm,
 		},
 		Environment: environment,
 	}
