@@ -15,10 +15,10 @@
 // Package run provides a sub tool for running pipelines.
 package run
 
-// This tool takes an input file that describes a pipeline and runs it using
-// the Pipelines API.
+// This tool runs pipelines using the Google Genomics Pipelines API.
 //
-// The input file can be:
+// The tool can execute either a single command line (via the --command flag)
+// or read and execute an input file consisting of:
 // - a raw JSON encoded API request
 // - a JSON encoded array of action objects
 // - a script file (whose format is described below)
@@ -158,6 +158,7 @@ var (
 	pvmAttempts    = flags.Uint("pvm-attempts", 1, "number of attempts on non-fatal failure, using preemptible VM")
 	gpus           = flags.Int("gpus", 0, "the number of GPUs to attach")
 	gpuType        = flags.String("gpu-type", "nvidia-tesla-k80", "the GPU type to attach")
+	command        = flags.String("command", "", "a single command line to execute")
 )
 
 func init() {
@@ -166,11 +167,14 @@ func init() {
 
 func Invoke(ctx context.Context, service *genomics.Service, project string, arguments []string) error {
 	filenames := common.ParseFlags(flags, arguments)
-	if len(filenames) != 1 {
-		return errors.New("a single input file is required")
-	}
 
-	filename := filenames[0]
+	var filename string
+	if len(filenames) > 0 {
+		if len(filenames) > 1 {
+			return errors.New("only a single input file may be specified")
+		}
+		filename = filenames[0]
+	}
 
 	req, err := buildRequest(filename, project)
 	if err != nil {
@@ -242,9 +246,11 @@ func parseJSON(filename string, v interface{}) error {
 }
 
 func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error) {
-	var req genomics.RunPipelineRequest
-	if err := parseJSON(filename, &req); err == nil {
-		return &req, nil
+	if filename != "" {
+		var req genomics.RunPipelineRequest
+		if err := parseJSON(filename, &req); err == nil {
+			return &req, nil
+		}
 	}
 
 	googlePath := func(directory string) string {
@@ -294,12 +300,22 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 	}
 
 	var actions []*genomics.Action
-	if err := parseJSON(filename, &actions); err != nil {
-		v, err := parseScript(filename)
-		if err != nil {
-			return nil, fmt.Errorf("creating pipeline from script: %v", err)
+	if filename != "" {
+		if err := parseJSON(filename, &actions); err != nil {
+			v, err := parseScript(filename)
+			if err != nil {
+				return nil, fmt.Errorf("creating pipeline from script: %v", err)
+			}
+			actions = v
 		}
-		actions = v
+	} else if *command != "" {
+		action, err := parse(*command)
+		if err != nil {
+			return nil, fmt.Errorf("creating action from command: %v", err)
+		}
+		actions = append(actions, action)
+	} else {
+		return nil, errors.New("no command or input file was specified")
 	}
 
 	zones, err := expandZones(project, listOf(*zones))
