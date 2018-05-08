@@ -229,7 +229,7 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 					continue
 				}
 			}
-			return err
+			return fmt.Errorf("operation %q failed: %v", lro.Name, err)
 		}
 		return nil
 	}
