@@ -60,7 +60,11 @@ func (m *MapFlagValue) Set(input string) error {
 type PipelineExecutionError genomics.Status
 
 func (err PipelineExecutionError) Error() string {
-	return fmt.Sprintf("executing pipeline: %d : %s", err.Code, err.Message)
+	reason := code.Code_name[int32(err.Code)]
+	if reason == "" {
+		reason = fmt.Sprintf("unknown error code %d", err.Code)
+	}
+	return fmt.Sprintf("executing pipeline: %s (reason: %s)", err.Message, reason)
 }
 
 // IsRetriable indicates if the user should retry the operation after receiving
