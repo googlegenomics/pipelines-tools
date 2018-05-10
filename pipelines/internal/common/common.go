@@ -67,13 +67,19 @@ func (err PipelineExecutionError) Error() string {
 	return fmt.Sprintf("executing pipeline: %s (reason: %s)", err.Message, reason)
 }
 
+var fatalErrorCodes = map[code.Code]bool{
+	code.Code_FAILED_PRECONDITION: true,
+	code.Code_INVALID_ARGUMENT:    true,
+	code.Code_ALREADY_EXISTS:      true,
+	code.Code_NOT_FOUND:           true,
+	code.Code_OUT_OF_RANGE:        true,
+	code.Code_PERMISSION_DENIED:   true,
+	code.Code_UNAUTHENTICATED:     true,
+	code.Code_UNIMPLEMENTED:       true,
+}
+
 // IsRetriable indicates if the user should retry the operation after receiving
 // the current error.
 func (err PipelineExecutionError) IsRetriable() bool {
-	switch code.Code_name[int32(err.Code)] {
-	case "UNAVAILABLE", "ABORTED":
-		return true
-	default:
-		return false
-	}
+	return !fatalErrorCodes[code.Code(err.Code)]
 }
