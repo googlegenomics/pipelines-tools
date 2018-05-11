@@ -682,10 +682,10 @@ func gcsTransfer(remote string) func(from, to string) *genomics.Action {
 		from = strings.TrimRight(from, "*")
 		to = strings.TrimRight(to, "*")
 		if strings.HasSuffix(remote, "/**") {
-			return gsutil("cp", "-r", gcsJoin(from, "*"), to)
+			return gsutil("-m", "cp", "-r", gcsJoin(from, "*"), to)
 		}
 		if strings.HasSuffix(remote, "/*") {
-			return gsutil("cp", gcsJoin(from, "*"), to)
+			return gsutil("-m", "cp", gcsJoin(from, "*"), to)
 		}
 		return gsutil("cp", from, to)
 	}
