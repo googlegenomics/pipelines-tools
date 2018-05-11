@@ -115,9 +115,11 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"net/url"
 	"os"
 	"os/signal"
 	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -159,6 +161,7 @@ var (
 	gpus           = flags.Int("gpus", 0, "the number of GPUs to attach")
 	gpuType        = flags.String("gpu-type", "nvidia-tesla-k80", "the GPU type to attach")
 	command        = flags.String("command", "", "a single command line to execute")
+	fuse           = flags.Bool("fuse", false, "if true, use FUSE to localize inputs (see README)")
 )
 
 func init() {
@@ -263,10 +266,17 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 	directories := []string{googlePath("tmp")}
 	environment["TMPDIR"] = directories[0]
 
+	buckets := make(map[string]string)
+
 	var localizers []*genomics.Action
 	for input, name := range namedListOf(*inputs, "INPUT") {
 		filename := gcsJoin(inputRoot, strings.TrimRight(input, "*"))
-		if isGCSPath(input) {
+		environment[name] = filename
+		if bucket, ok := parseGCSPath(input); ok {
+			if *fuse {
+				buckets[bucket] = filepath.Join(inputRoot, bucket)
+				continue
+			}
 			localizers = append(localizers, gcsTransfer(input)(input, filename))
 		} else {
 			action, err := upload(input, filename)
@@ -275,10 +285,16 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 			}
 			localizers = append(localizers, action)
 		}
-		environment[name] = filename
 		if strings.HasSuffix(input, "*") {
 			directories = append(directories, filename)
 		}
+	}
+
+	if len(buckets) > 0 {
+		for _, path := range buckets {
+			directories = append(directories, path)
+		}
+		localizers = append(localizers, gcsFuse(project, buckets)...)
 	}
 
 	var delocalizers []*genomics.Action
@@ -642,8 +658,12 @@ func cancelOnInterruptOrTimeout(ctx context.Context, service *genomics.Service, 
 
 const gcsPrefix = "gs://"
 
-func isGCSPath(input string) bool {
-	return strings.HasPrefix(input, gcsPrefix)
+func parseGCSPath(input string) (string, bool) {
+	parsed, err := url.Parse(input)
+	if err != nil {
+		return "", false
+	}
+	return parsed.Host, true
 }
 
 func gcsJoin(input ...string) string {
@@ -651,7 +671,7 @@ func gcsJoin(input ...string) string {
 	for i, part := range input {
 		parts[i] = strings.TrimPrefix(part, gcsPrefix)
 	}
-	if len(input) > 0 && isGCSPath(input[0]) {
+	if len(input) > 0 && strings.HasPrefix(input[0], gcsPrefix) {
 		return gcsPrefix + path.Join(parts...)
 	}
 	return path.Join(parts...)
@@ -669,4 +689,22 @@ func gcsTransfer(remote string) func(from, to string) *genomics.Action {
 		}
 		return gsutil("cp", from, to)
 	}
+}
+
+func gcsFuse(project string, buckets map[string]string) []*genomics.Action {
+	var actions []*genomics.Action
+	for bucket, path := range buckets {
+		actions = append(actions, &genomics.Action{
+			ImageUri: fmt.Sprintf("gcr.io/%s/gcsfuse", project),
+			Commands: []string{"--implicit-dirs", "--foreground", bucket, path},
+			Flags:    []string{"ENABLE_FUSE", "RUN_IN_BACKGROUND"},
+			Mounts:   []*genomics.Mount{googleRoot},
+		})
+		actions = append(actions, &genomics.Action{
+			ImageUri: fmt.Sprintf("gcr.io/%s/gcsfuse", project),
+			Commands: []string{"wait", path},
+			Mounts:   []*genomics.Mount{googleRoot},
+		})
+	}
+	return actions
 }
