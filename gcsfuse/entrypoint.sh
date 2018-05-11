@@ -1,3 +1,5 @@
+#!/bin/sh
+#
 # Copyright 2018 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,12 +14,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM alpine:latest
+set -eu
 
-RUN apk add --update musl-dev go git fuse
-RUN mkdir /go
-RUN GOPATH=/go go get -u github.com/googlecloudplatform/gcsfuse
+fail() {
+  echo $@ >&2
+  exit 1
+}
 
-COPY entrypoint.sh /usr/local/bin
+if test "${1:-}" = "wait"; then
+  target="${2:-}"
+  timeout="${3:-10}"
+  test -n "${target}" || fail "No mount point specified"
 
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+  delay=1
+  elapsed=0
+  until mountpoint -q "${target}"; do
+    test "${elapsed}" -lt "${timeout}" || fail "Timed out waiting on ${target}"
+    sleep "${delay}"
+    elapsed=$((elapsed+delay))
+  done
+else
+  /go/bin/gcsfuse $@
+fi
