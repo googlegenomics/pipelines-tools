@@ -65,6 +65,24 @@ $ gsutil cat gs://my-bucket/logs/output
 
 The script file format is described in the [source code for the command][3].
 
+### Using gcsfuse with the pipelines tool
+
+The `pipelines` tool can use [gcsfuse][gcs-fuse] to localize input files
+instead of copying them one by one with `gsutil`.  There are a few important
+caveats when using the `--fuse` flag:
+
+1. You must build a gcsfuse docker container and push it into your project's
+Container Registry.  To do this, enter the `gcsfuse` subdirectory and run:
+
+```
+gcloud auth configure-docker
+docker build -t gcr.io/${GOOGLE_CLOUD_PROJECT}/gcsfuse .
+docker push gcr.io/${GOOGLE_CLOUD_PROJECT}/gcsfuse
+```
+
+2. Files other than those directly mentioned by the `--inputs` flag will be
+available to containers, since the entire bucket is mounted.
+
 ## The `migrate-pipeline` tool
 
 This tool takes a JSON encoded v1alpha2 run pipeline request and attempts to
@@ -89,3 +107,4 @@ Please report problems using the issue tracker.
 [3]: https://github.com/googlegenomics/pipelines-tools/blob/master/pipelines/internal/commands/run/run.go#L18
 [cloud-shell]: https://cloud.google.com/shell/docs/quickstart
 [api-reference]: https://cloud.google.com/genomics/reference/rest/v2alpha1/pipelines/run
+[gcs-fuse]: https://cloud.google.com/storage/docs/gcs-fuse
