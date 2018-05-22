@@ -207,7 +207,7 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 
 		lro, err := service.Pipelines.Run(req).Context(ctx).Do()
 		if err != nil {
-			if err, ok := err.(*googleapi.Error); ok {
+			if err, ok := err.(*googleapi.Error); ok && err.Message != "" {
 				return fmt.Errorf("starting pipeline: %q: %q", err.Message, err.Body)
 			}
 			return fmt.Errorf("starting pipeline: %v", err)
