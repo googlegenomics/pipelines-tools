@@ -7,8 +7,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/google/go-genproto/googleapis/rpc/code"
 	genomics "google.golang.org/api/genomics/v2alpha1"
+	"google.golang.org/genproto/googleapis/rpc/code"
 )
 
 // ExpandOperationName adds the project and operations prefixes to name (if
