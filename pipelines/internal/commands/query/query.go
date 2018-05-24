@@ -27,6 +27,7 @@ var (
 	flags flag.FlagSet
 
 	filter = flags.String("filter", "", "the query filter")
+	limit  = flags.Uint("limit", 32, "the maximum number of operations")
 )
 
 func Invoke(ctx context.Context, service *genomics.Service, project string, arguments []string) error {
@@ -37,13 +38,28 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 	if *filter != "" {
 		call = call.Filter(*filter)
 	}
-	resp, err := call.Do()
-	if err != nil {
-		return err
+
+	if *limit == 0 {
+		return nil
 	}
 
-	for _, operation := range resp.Operations {
-		fmt.Println(operation.Name)
+	pageToken := ""
+	listed := uint(0)
+	for {
+		resp, err := call.PageToken(pageToken).Do()
+		if err != nil {
+			return err
+		}
+
+		for _, operation := range resp.Operations {
+			fmt.Println(operation.Name)
+			if listed++; listed == *limit {
+				return nil
+			}
+		}
+
+		if pageToken = resp.NextPageToken; pageToken == "" {
+			return nil
+		}
 	}
-	return nil
 }
