@@ -162,6 +162,7 @@ var (
 	gpuType        = flags.String("gpu-type", "nvidia-tesla-k80", "the GPU type to attach")
 	command        = flags.String("command", "", "a single command line to execute")
 	fuse           = flags.Bool("fuse", false, "if true, use FUSE to localize inputs (see README)")
+	debug          = flag.Bool("debug", false, "if true, an shh server will be started")
 )
 
 func init() {
@@ -365,6 +366,16 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 	}
 
 	pipeline.Actions = []*genomics.Action{mkdir(directories)}
+
+	if *debug {
+		debugAction := &genomics.Action{
+			ImageUri:     "anamanolache/sshserver:1.0",
+			PortMappings: map[string]int64{"22": 22},
+			Flags:        []string{"RUN_IN_BACKGROUND"},
+		}
+		pipeline.Actions = append([]*genomics.Action{debugAction}, pipeline.Actions...)
+	}
+
 	for _, v := range [][]*genomics.Action{localizers, actions, delocalizers} {
 		pipeline.Actions = append(pipeline.Actions, v...)
 	}
@@ -499,7 +510,7 @@ func addRequiredDisks(pipeline *genomics.Pipeline) {
 func addRequiredScopes(pipeline *genomics.Pipeline) {
 	scopes := &pipeline.Resources.VirtualMachine.ServiceAccount.Scopes
 	for _, action := range pipeline.Actions {
-		if strings.HasPrefix(action.ImageUri, "google/cloud-sdk") || isCloudCommand(action.Commands[0]) {
+		if strings.HasPrefix(action.ImageUri, "google/cloud-sdk") || (action.Commands != nil && isCloudCommand(action.Commands[0])) {
 			*scopes = append(*scopes, "https://www.googleapis.com/auth/devstorage.read_write")
 			return
 		}
