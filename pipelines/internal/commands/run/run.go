@@ -499,7 +499,7 @@ func addRequiredDisks(pipeline *genomics.Pipeline) {
 func addRequiredScopes(pipeline *genomics.Pipeline) {
 	scopes := &pipeline.Resources.VirtualMachine.ServiceAccount.Scopes
 	for _, action := range pipeline.Actions {
-		if strings.HasPrefix(action.ImageUri, "google/cloud-sdk") || isCloudCommand(action.Commands[0]) {
+		if strings.HasPrefix(action.ImageUri, "google/cloud-sdk") || (len(action.Commands) > 0 && isCloudCommand(action.Commands[0])) {
 			*scopes = append(*scopes, "https://www.googleapis.com/auth/devstorage.read_write")
 			return
 		}
