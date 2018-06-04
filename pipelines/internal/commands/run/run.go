@@ -123,10 +123,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/commands/watch"
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/common"
+	"golang.org/x/crypto/ssh/terminal"
 	"golang.org/x/oauth2/google"
 	compute "google.golang.org/api/compute/v1"
 	genomics "google.golang.org/api/genomics/v2alpha1"
@@ -162,7 +164,7 @@ var (
 	gpuType        = flags.String("gpu-type", "nvidia-tesla-k80", "the GPU type to attach")
 	command        = flags.String("command", "", "a single command line to execute")
 	fuse           = flags.Bool("fuse", false, "if true, use FUSE to localize inputs (see README)")
-	ssh            = flag.Bool("ssh", false, "if true, an shh server will be started")
+	ssh            = flags.Bool("ssh", false, "if true, an shh server will be started")
 )
 
 func init() {
@@ -365,8 +367,13 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		Environment: environment,
 	}
 
-	pipeline.Actions = append(pipeline.Actions, sshDebug()...)
 	pipeline.Actions = append(pipeline.Actions, mkdir(directories))
+
+	sshActions, err := sshDebug(project)
+	if err != nil {
+		return nil, fmt.Errorf("failed to configure ssh debug: %v", err)
+	}
+	pipeline.Actions = append(pipeline.Actions, sshActions...)
 
 	for _, v := range [][]*genomics.Action{localizers, actions, delocalizers} {
 		pipeline.Actions = append(pipeline.Actions, v...)
@@ -712,14 +719,22 @@ func gcsFuse(project string, buckets map[string]string) []*genomics.Action {
 	return actions
 }
 
-func sshDebug() []*genomics.Action {
+func sshDebug(project string) ([]*genomics.Action, error) {
+
+	fmt.Print("setup a SSH password:")
+	pwdBuffer, err := terminal.ReadPassword(syscall.Stdin)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to setup ssh password: %v", err)
+	}
+
 	var actions []*genomics.Action
 	if *ssh {
 		actions = append(actions, &genomics.Action{
-			ImageUri:     "anamanolache/sshserver:1.0",
+			ImageUri:     fmt.Sprintf("gcr.io/%s/sshserver", project),
 			PortMappings: map[string]int64{"22": 22},
 			Flags:        []string{"RUN_IN_BACKGROUND"},
+			Environment:  map[string]string{"password": string(pwdBuffer)},
 		})
 	}
-	return actions
+	return actions, nil
 }
