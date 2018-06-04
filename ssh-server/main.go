@@ -41,7 +41,7 @@ func main() {
 	for {
 		connection, err := listener.Accept()
 		if err != nil {
-			log.Fatalf("failed to accept incoming connection: ", err)
+			log.Fatalf("failed to accept incoming connection: %v", err)
 		}
 
 		go handleConnection(connection, config)
