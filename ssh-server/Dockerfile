@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc.
+# Copyright 2018 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,6 +25,4 @@ EXPOSE 22
 # By default, the server listens on port 22
 ENTRYPOINT ["ssh-server"]
 
-RUN apt-get update
-RUN apt-get -y install openssh-client
 RUN ssh-keygen -q -t rsa -N '' -f id_rsa

@@ -14,24 +14,26 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+const PWD_ENV = "SSH_PWD"
+
 var (
 	serverPort = flag.Uint("port", uint(22), "the port to listen on")
-	password   = flag.String("password", "", "the client authentication password")
 )
 
 func main() {
 	flag.Parse()
 
-	if envpwd := os.Getenv("password"); *password == "" && envpwd != "" {
-		*password = envpwd
+	password := os.Getenv(PWD_ENV)
+	if password == "" {
+		log.Fatalf("environment variable %s not set", PWD_ENV)
 	}
 
-	config, err := setupAuthentication()
+	config, err := setupAuthentication(password)
 	if err != nil {
 		log.Fatalf("failed to complete authentication setup: %v", err)
 	}
 
-	serverAddress := fmt.Sprintf("0.0.0.0:%d", *serverPort)
+	serverAddress := fmt.Sprintf(":%d", *serverPort)
 	listener, err := net.Listen("tcp", serverAddress)
 	if err != nil {
 		log.Fatalf("failed to listen for connection: %v", err)
@@ -48,10 +50,10 @@ func main() {
 	}
 }
 
-func setupAuthentication() (*ssh.ServerConfig, error) {
+func setupAuthentication(password string) (*ssh.ServerConfig, error) {
 	config := &ssh.ServerConfig{
 		PasswordCallback: func(conn ssh.ConnMetadata, providedPwd []byte) (*ssh.Permissions, error) {
-			if string(providedPwd) == *password {
+			if string(providedPwd) == password {
 				return nil, nil
 			}
 			return nil, fmt.Errorf("authentication failed for user %s", conn.User())
@@ -79,7 +81,6 @@ func handleConnection(nConn net.Conn, serverConfig *ssh.ServerConfig) {
 	go ssh.DiscardRequests(reqs)
 
 	for newChannel := range chans {
-		// only accept ServerShell protocol
 		if newChannel.ChannelType() != "session" {
 			newChannel.Reject(ssh.UnknownChannelType, "unknown channel type")
 			continue
@@ -96,14 +97,14 @@ func handleConnection(nConn net.Conn, serverConfig *ssh.ServerConfig) {
 		if err != nil {
 			fmt.Errorf("Could not start pty: %v", err)
 		}
-
-		// Copy stdin to the pty and the pty to stdout.
+		// Redirect pseudo-terminal output to client channel
 		go func() {
-			_, _ = io.Copy(bashPTY, channel)
+			io.Copy(bashPTY, channel)
 			channel.Close()
 		}()
+		// Redirect client channel input to pseudo-terminal
 		go func() {
-			_, _ = io.Copy(channel, bashPTY)
+			io.Copy(channel, bashPTY)
 			channel.Close()
 		}()
 
