@@ -18,8 +18,6 @@ import (
 	"golang.org/x/crypto/ssh/terminal"
 )
 
-const PWD_ENV = "SSH_PWD"
-
 var (
 	serverPort = flag.Uint("port", uint(22), "the port to listen on")
 )
@@ -27,12 +25,7 @@ var (
 func main() {
 	flag.Parse()
 
-	password := os.Getenv(PWD_ENV)
-	if password == "" {
-		log.Fatalf("environment variable %s not set", PWD_ENV)
-	}
-
-	config, err := setupAuthentication(password)
+	config, err := setupAuthentication()
 	if err != nil {
 		log.Fatalf("failed to complete authentication setup: %v", err)
 	}
@@ -54,14 +47,9 @@ func main() {
 	}
 }
 
-func setupAuthentication(password string) (*ssh.ServerConfig, error) {
+func setupAuthentication() (*ssh.ServerConfig, error) {
 	config := &ssh.ServerConfig{
-		PasswordCallback: func(conn ssh.ConnMetadata, providedPwd []byte) (*ssh.Permissions, error) {
-			if string(providedPwd) == password {
-				return nil, nil
-			}
-			return nil, fmt.Errorf("authentication failed for user %s", conn.User())
-		},
+		NoClientAuth: true,
 	}
 
 	privateBytes, err := ioutil.ReadFile("id_rsa")
