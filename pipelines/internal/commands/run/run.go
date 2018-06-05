@@ -162,6 +162,8 @@ var (
 	gpuType        = flags.String("gpu-type", "nvidia-tesla-k80", "the GPU type to attach")
 	command        = flags.String("command", "", "a single command line to execute")
 	fuse           = flags.Bool("fuse", false, "if true, use FUSE to localize inputs (see README)")
+	network        = flags.String("network", "", "the VPC network to use")
+	subnetwork     = flags.String("subnetwork", "", "the VPC subnetwork to use")
 )
 
 func init() {
@@ -345,6 +347,13 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 			UsePrivateAddress: *privateAddress,
 		},
 		ServiceAccount: &genomics.ServiceAccount{Scopes: listOf(*scopes)},
+	}
+
+	if *network != "" {
+		vm.Network.Name = *network
+	}
+	if *subnetwork != "" {
+		vm.Network.Subnetwork = *subnetwork
 	}
 
 	if *gpus > 0 {
