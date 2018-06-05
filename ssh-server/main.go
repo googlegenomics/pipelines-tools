@@ -27,20 +27,20 @@ func main() {
 
 	config, err := setupAuthentication()
 	if err != nil {
-		log.Fatalf("failed to complete authentication setup: %v", err)
+		log.Fatalf("setup authentication: %v", err)
 	}
 
 	serverAddress := fmt.Sprintf(":%d", *serverPort)
 	listener, err := net.Listen("tcp", serverAddress)
 	if err != nil {
-		log.Fatalf("failed to listen for connection: %v", err)
+		log.Fatalf("listen for connection: %v", err)
 	}
 	log.Printf("Listening on %s...", serverAddress)
 
 	for {
 		connection, err := listener.Accept()
 		if err != nil {
-			log.Fatalf("failed to accept incoming connection: %v", err)
+			log.Fatalf("accept incoming connection: %v", err)
 		}
 
 		go handleConnection(connection, config)
@@ -54,13 +54,11 @@ func setupAuthentication() (*ssh.ServerConfig, error) {
 
 	privateBytes, err := ioutil.ReadFile("id_rsa")
 	if err != nil {
-		log.Fatal("Failed to read private server key (id_rsa)")
-		return nil, err
+		return nil, fmt.Errorf("read private server key: %v", err)
 	}
 	private, err := ssh.ParsePrivateKey(privateBytes)
 	if err != nil {
-		log.Fatal("Failed to parse private server key")
-		return nil, err
+		return nil, fmt.Errorf("parse private server key: %v", err)
 	}
 	config.AddHostKey(private)
 	return config, nil
@@ -71,7 +69,7 @@ func handleConnection(nConn net.Conn, serverConfig *ssh.ServerConfig) error {
 	// net.Conn.
 	_, chans, reqs, err := ssh.NewServerConn(nConn, serverConfig)
 	if err != nil {
-		return fmt.Errorf("failed to handshake, %v", err)
+		return fmt.Errorf("handshake: %v", err)
 	}
 
 	// Service the incoming request channel so connection doesn't hang
@@ -93,7 +91,7 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 	}
 	channel, requests, err := newChannel.Accept()
 	if err != nil {
-		return fmt.Errorf("Could not accept channel: %v", err)
+		return fmt.Errorf("accept channel: %v", err)
 	}
 	defer channel.Close()
 
@@ -107,7 +105,7 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 	// Start the command with a pseudo-terminal.
 	bashPTY, err := pty.Start(exec.Command("bash"))
 	if err != nil {
-		return fmt.Errorf("Could not start pty: %v", err)
+		return fmt.Errorf("start pty: %v", err)
 	}
 	defer bashPTY.Close()
 
@@ -115,9 +113,7 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 	resizePTY(bashPTY)
 
 	// Redirect pseudo-terminal output to client channel
-	go func() {
-		io.Copy(bashPTY, channel)
-	}()
+	go io.Copy(bashPTY, channel)
 	// Redirect client channel input to pseudo-terminal
 	io.Copy(channel, bashPTY)
 	return nil
