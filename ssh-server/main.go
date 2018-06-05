@@ -55,21 +55,23 @@ func setupAuthentication() (*ssh.ServerConfig, error) {
 	privateBytes, err := ioutil.ReadFile("id_rsa")
 	if err != nil {
 		log.Fatal("Failed to read private server key (id_rsa)")
+		return nil, err
 	}
 	private, err := ssh.ParsePrivateKey(privateBytes)
 	if err != nil {
 		log.Fatal("Failed to parse private server key")
+		return nil, err
 	}
 	config.AddHostKey(private)
 	return config, nil
 }
 
-func handleConnection(nConn net.Conn, serverConfig *ssh.ServerConfig) {
+func handleConnection(nConn net.Conn, serverConfig *ssh.ServerConfig) error {
 	// Before use, a handshake must be performed on the incoming
 	// net.Conn.
 	_, chans, reqs, err := ssh.NewServerConn(nConn, serverConfig)
 	if err != nil {
-		fmt.Errorf("failed to handshake, %v", err)
+		return fmt.Errorf("failed to handshake, %v", err)
 	}
 
 	// Service the incoming request channel so connection doesn't hang
@@ -77,18 +79,21 @@ func handleConnection(nConn net.Conn, serverConfig *ssh.ServerConfig) {
 
 	// Service the incoming channels
 	for newChannel := range chans {
-		serviceChannel(newChannel)
+		if err = serviceChannel(newChannel); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func serviceChannel(newChannel ssh.NewChannel) {
+func serviceChannel(newChannel ssh.NewChannel) error {
 	if newChannel.ChannelType() != "session" {
 		newChannel.Reject(ssh.UnknownChannelType, "unknown channel type")
-		return
+		return nil
 	}
 	channel, requests, err := newChannel.Accept()
 	if err != nil {
-		fmt.Errorf("Could not accept channel: %v", err)
+		return fmt.Errorf("Could not accept channel: %v", err)
 	}
 	defer channel.Close()
 
@@ -102,7 +107,7 @@ func serviceChannel(newChannel ssh.NewChannel) {
 	// Start the command with a pseudo-terminal.
 	bashPTY, err := pty.Start(exec.Command("bash"))
 	if err != nil {
-		fmt.Errorf("Could not start pty: %v", err)
+		return fmt.Errorf("Could not start pty: %v", err)
 	}
 	defer bashPTY.Close()
 
@@ -115,6 +120,7 @@ func serviceChannel(newChannel ssh.NewChannel) {
 	}()
 	// Redirect client channel input to pseudo-terminal
 	io.Copy(channel, bashPTY)
+	return nil
 }
 
 func resizePTY(bashPTY *os.File) {
