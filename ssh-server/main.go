@@ -22,59 +22,67 @@ var (
 func main() {
 	flag.Parse()
 
-	config, err := setupAuthentication()
+	config, listener, err := startServer()
 	if err != nil {
-		log.Fatalf("setup authentication: %v", err)
+		log.Fatalf("Failed to start server: %v", err)
+	}
+
+	for {
+		connection, err := listener.Accept()
+		if err != nil {
+			log.Fatalf("Failed to accept incoming connection: %v", err)
+		}
+
+		go func() {
+			err := handleConnection(connection, config)
+			if err != nil {
+				log.Fatalf("Failed to handle connection: %v", err)
+			}
+		}()
+	}
+}
+
+func startServer() (*ssh.ServerConfig, net.Listener, error) {
+	config, err := getConfiguration()
+	if err != nil {
+		return nil, nil, fmt.Errorf("config server: %v", err)
 	}
 
 	serverAddress := fmt.Sprintf(":%d", *serverPort)
 	listener, err := net.Listen("tcp", serverAddress)
 	if err != nil {
-		log.Fatalf("listen for connection: %v", err)
+		return nil, nil, fmt.Errorf("listening for connection: %v", err)
 	}
 	log.Printf("Listening on %s...", serverAddress)
-
-	for {
-		connection, err := listener.Accept()
-		if err != nil {
-			log.Fatalf("accept incoming connection: %v", err)
-		}
-
-		go handleConnection(connection, config)
-	}
+	return config, listener, nil
 }
 
-func setupAuthentication() (*ssh.ServerConfig, error) {
-	config := &ssh.ServerConfig{
-		NoClientAuth: true,
-	}
+func getConfiguration() (*ssh.ServerConfig, error) {
+	config := &ssh.ServerConfig{NoClientAuth: true}
 
 	privateBytes, err := ioutil.ReadFile("id_rsa")
 	if err != nil {
-		return nil, fmt.Errorf("read private server key: %v", err)
+		return nil, fmt.Errorf("reading private server key: %v", err)
 	}
 	private, err := ssh.ParsePrivateKey(privateBytes)
 	if err != nil {
-		return nil, fmt.Errorf("parse private server key: %v", err)
+		return nil, fmt.Errorf("parsing private server key: %v", err)
 	}
 	config.AddHostKey(private)
 	return config, nil
 }
 
-func handleConnection(nConn net.Conn, serverConfig *ssh.ServerConfig) error {
-	// Before use, a handshake must be performed on the incoming
-	// net.Conn.
-	_, chans, reqs, err := ssh.NewServerConn(nConn, serverConfig)
+func handleConnection(conn net.Conn, serverConfig *ssh.ServerConfig) error {
+	_, chans, reqs, err := ssh.NewServerConn(conn, serverConfig)
 	if err != nil {
 		return fmt.Errorf("handshake: %v", err)
 	}
 
-	// Service the incoming request channel so connection doesn't hang
+	// Discard out-of-band SSH requests (not supported by this server).
 	go ssh.DiscardRequests(reqs)
 
-	// Service the incoming channels
 	for newChannel := range chans {
-		if err = serviceChannel(newChannel); err != nil {
+		if err := serviceChannel(newChannel); err != nil {
 			return err
 		}
 	}
@@ -88,14 +96,14 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 	}
 	channel, requests, err := newChannel.Accept()
 	if err != nil {
-		return fmt.Errorf("accept channel: %v", err)
+		return fmt.Errorf("accepting channel: %v", err)
 	}
 	defer channel.Close()
 
 	// Start the command with a pseudo-terminal.
 	bashPTY, err := pty.Start(exec.Command("bash"))
 	if err != nil {
-		return fmt.Errorf("start pty: %v", err)
+		return fmt.Errorf("starting pty: %v", err)
 	}
 	defer bashPTY.Close()
 

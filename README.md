@@ -86,15 +86,15 @@ available to containers, since the entire bucket is mounted.
 ### SSH into the worker machine
 
 The pipelines tool can start a docker container with a ssh server on the same 
-machine as the worker to allow you to access logs
+machine as the worker, to allow you to access logs
 
 To be able to use the --ssh flag you have to build a ssh-server docker container. 
 To do this, enter the `ssh-server` subdirectory and run: 
 
 ```
 gcloud auth configure-docker
-docker build -t gcr.io/${GOOGLE_CLOUD_PROJECT}/sshserver .
-docker push gcr.io/${GOOGLE_CLOUD_PROJECT}/sshserver
+docker build -t gcr.io/${GOOGLE_CLOUD_PROJECT}/ssh-server .
+docker push gcr.io/${GOOGLE_CLOUD_PROJECT}/ssh-server
 ```
 
 ## The `migrate-pipeline` tool
