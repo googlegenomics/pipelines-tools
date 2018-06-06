@@ -1,20 +1,18 @@
 package main
 
 import (
+	"bytes"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"net"
-	"os"
 	"os/exec"
-	"os/signal"
-	"syscall"
 
 	"github.com/kr/pty"
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/terminal"
 )
 
 var (
@@ -94,13 +92,6 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 	}
 	defer channel.Close()
 
-	// Tell the client we accept pty and shell commands
-	go func(in <-chan *ssh.Request) {
-		for req := range in {
-			req.Reply(req.Type == "pty-req" || req.Type == "shell", nil)
-		}
-	}(requests)
-
 	// Start the command with a pseudo-terminal.
 	bashPTY, err := pty.Start(exec.Command("bash"))
 	if err != nil {
@@ -108,32 +99,34 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 	}
 	defer bashPTY.Close()
 
-	// Resize pseudo terminal so the terminal pointer will be at the correct position
-	resizePTY(bashPTY)
+	go func(in <-chan *ssh.Request) {
+		for req := range in {
+			// Tell the client we accept pty and shell commands
+			req.Reply(req.Type == "pty-req" || req.Type == "shell", nil)
+
+			var winSize struct {
+				Width  uint32
+				Height uint32
+			}
+
+			if req.Type == "pty-req" {
+				skip := binary.BigEndian.Uint32(req.Payload)
+				buf := bytes.NewReader(req.Payload[4+skip:])
+				err = binary.Read(buf, binary.BigEndian, &winSize)
+				pty.Setsize(bashPTY, &pty.Winsize{Cols: uint16(winSize.Width), Rows: uint16(winSize.Height)})
+			}
+
+			if req.Type == "window-change" {
+				buf := bytes.NewReader(req.Payload)
+				err = binary.Read(buf, binary.BigEndian, &winSize)
+				pty.Setsize(bashPTY, &pty.Winsize{Cols: uint16(winSize.Width), Rows: uint16(winSize.Height)})
+			}
+		}
+	}(requests)
 
 	// Redirect pseudo-terminal output to client channel
 	go io.Copy(bashPTY, channel)
 	// Redirect client channel input to pseudo-terminal
 	io.Copy(channel, bashPTY)
 	return nil
-}
-
-func resizePTY(bashPTY *os.File) {
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGWINCH)
-	go func() {
-		for range ch {
-			if err := pty.InheritSize(os.Stdin, bashPTY); err != nil {
-				log.Printf("error resizing pty: %s", err)
-			}
-		}
-	}()
-	ch <- syscall.SIGWINCH
-	// Initial resize.
-	// Set stdin in raw mode.
-	oldState, err := terminal.MakeRaw(int(os.Stdin.Fd()))
-	if err != nil {
-		panic(err)
-	}
-	defer func() { _ = terminal.Restore(int(os.Stdin.Fd()), oldState) }()
 }
