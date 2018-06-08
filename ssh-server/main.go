@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"flag"
 	"fmt"
@@ -9,14 +10,19 @@ import (
 	"io/ioutil"
 	"log"
 	"net"
+	"os"
 	"os/exec"
 
 	"github.com/kr/pty"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/oauth2/google"
+	compute "google.golang.org/api/compute/v1"
+	genomics "google.golang.org/api/genomics/v1"
 )
 
 var (
 	serverPort = flag.Uint("port", uint(22), "the port to listen on")
+	project    = flag.String("project", defaultProject(), "the cloud project name")
 )
 
 func main() {
@@ -34,12 +40,13 @@ func main() {
 		}
 
 		go func() {
-			err := handleConnection(connection, config)
-			if err != nil {
-				log.Fatalf("Failed to handle connection: %v", err)
-			}
+			handleConnection(connection, config)
 		}()
 	}
+}
+
+func defaultProject() string {
+	return os.Getenv("GOOGLE_CLOUD_PROJECT")
 }
 
 func startServer() (*ssh.ServerConfig, net.Listener, error) {
@@ -58,8 +65,20 @@ func startServer() (*ssh.ServerConfig, net.Listener, error) {
 }
 
 func getConfiguration() (*ssh.ServerConfig, error) {
-	config := &ssh.ServerConfig{NoClientAuth: true}
 
+	config := &ssh.ServerConfig{
+		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+			authorizedKeys, err := getAuthorizedKeys()
+			if err != nil {
+				return nil, fmt.Errorf("getting the authorized keys: %v", err)
+			}
+
+			if !authorizedKeys[string(key.Marshal())] {
+				return nil, fmt.Errorf("authorizing key: %v", err)
+			}
+			return nil, nil
+		},
+	}
 	privateBytes, err := ioutil.ReadFile("id_rsa")
 	if err != nil {
 		return nil, fmt.Errorf("reading private server key: %v", err)
@@ -70,6 +89,41 @@ func getConfiguration() (*ssh.ServerConfig, error) {
 	}
 	config.AddHostKey(private)
 	return config, nil
+}
+
+func getAuthorizedKeys() (map[string]bool, error) {
+	ctx := context.Background()
+	client, err := google.DefaultClient(ctx, genomics.GenomicsScope)
+	if err != nil {
+		return nil, fmt.Errorf("creating authenticated client: %v", err)
+	}
+
+	gce, err := compute.New(client)
+	if err != nil {
+		return nil, fmt.Errorf("getting GCE service instance: %v", err)
+	}
+
+	op, err := gce.Projects.Get(*project).Do()
+	if err != nil {
+		return nil, fmt.Errorf("getting projects metadata: %v", err)
+	}
+
+	authorizedKeys := map[string]bool{}
+	for _, item := range op.CommonInstanceMetadata.Items {
+		if item.Key == "ssh-keys" {
+			keysBytes := []byte(*item.Value)
+			for len(keysBytes) > 0 {
+				pbkey, _, _, rest, err := ssh.ParseAuthorizedKey(keysBytes)
+				if err != nil {
+					return nil, fmt.Errorf("parsing authorized key: %v", err)
+				}
+				authorizedKeys[string(pbkey.Marshal())] = true
+				keysBytes = rest
+			}
+			break
+		}
+	}
+	return authorizedKeys, nil
 }
 
 func handleConnection(conn net.Conn, serverConfig *ssh.ServerConfig) error {
