@@ -34,10 +34,7 @@ func main() {
 		}
 
 		go func() {
-			err := handleConnection(connection, config)
-			if err != nil {
-				log.Fatalf("Failed to handle connection: %v", err)
-			}
+			handleConnection(connection, config)
 		}()
 	}
 }
