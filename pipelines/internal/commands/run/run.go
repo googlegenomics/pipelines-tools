@@ -728,6 +728,7 @@ func sshDebug(project string) []*genomics.Action {
 	if *ssh {
 		actions = append(actions, &genomics.Action{
 			ImageUri:     fmt.Sprintf("gcr.io/%s/ssh-server", project),
+			Commands:     []string{"-project", project},
 			PortMappings: map[string]int64{"22": 22},
 			Flags:        []string{"RUN_IN_BACKGROUND"},
 		})
