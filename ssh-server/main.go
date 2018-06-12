@@ -23,7 +23,7 @@ var (
 func main() {
 	flag.Parse()
 
-	config, listener, err := startServer()
+	config, listener, err := startServer(*serverPort)
 	if err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
@@ -41,16 +41,16 @@ func main() {
 	}
 }
 
-func startServer() (*ssh.ServerConfig, net.Listener, error) {
+func startServer(port uint) (*ssh.ServerConfig, net.Listener, error) {
 	config, err := getConfiguration()
 	if err != nil {
-		return nil, nil, fmt.Errorf("config server: %v", err)
+		return nil, nil, fmt.Errorf("getting configuration: %v", err)
 	}
 
-	serverAddress := fmt.Sprintf(":%d", *serverPort)
+	serverAddress := fmt.Sprintf(":%d", port)
 	listener, err := net.Listen("tcp", serverAddress)
 	if err != nil {
-		return nil, nil, fmt.Errorf("listening for connection: %v", err)
+		return nil, nil, fmt.Errorf("listen: %v", err)
 	}
 	return config, listener, nil
 }
