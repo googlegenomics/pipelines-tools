@@ -22,7 +22,6 @@ import (
 
 var (
 	serverPort = flag.Uint("port", uint(22), "the port to listen on")
-	project    = flag.String("project", defaultProject(), "the cloud project name")
 )
 
 func main() {
