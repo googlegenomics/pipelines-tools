@@ -28,10 +28,11 @@ var (
 func main() {
 	flag.Parse()
 
-	config, listener, err := startServer()
+	config, listener, err := startServer(*serverPort)
 	if err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
+	log.Printf("Listening on %s...", listener.Addr())
 
 	for {
 		connection, err := listener.Accept()
@@ -49,18 +50,17 @@ func defaultProject() string {
 	return os.Getenv("GOOGLE_CLOUD_PROJECT")
 }
 
-func startServer() (*ssh.ServerConfig, net.Listener, error) {
+func startServer(port uint) (*ssh.ServerConfig, net.Listener, error) {
 	config, err := getConfiguration()
 	if err != nil {
-		return nil, nil, fmt.Errorf("config server: %v", err)
+		return nil, nil, fmt.Errorf("getting configuration: %v", err)
 	}
 
-	serverAddress := fmt.Sprintf(":%d", *serverPort)
+	serverAddress := fmt.Sprintf(":%d", port)
 	listener, err := net.Listen("tcp", serverAddress)
 	if err != nil {
-		return nil, nil, fmt.Errorf("listening for connection: %v", err)
+		return nil, nil, fmt.Errorf("listen: %v", err)
 	}
-	log.Printf("Listening on %s...", serverAddress)
 	return config, listener, nil
 }
 
@@ -163,29 +163,40 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 			// Tell the client we accept pty and shell commands
 			req.Reply(req.Type == "pty-req" || req.Type == "shell", nil)
 
-			var winSize struct {
-				Width  uint32
-				Height uint32
-			}
-
 			if req.Type == "pty-req" {
 				skip := binary.BigEndian.Uint32(req.Payload)
-				buf := bytes.NewReader(req.Payload[4+skip:])
-				err = binary.Read(buf, binary.BigEndian, &winSize)
-				pty.Setsize(bashPTY, &pty.Winsize{Cols: uint16(winSize.Width), Rows: uint16(winSize.Height)})
+				if err := resize(bashPTY, req.Payload[4+skip:]); err != nil {
+					channel.Stderr().Write([]byte(fmt.Sprintf("Failed to resize pty: %v. ", err)))
+					channel.Close()
+					return
+				}
 			}
-
 			if req.Type == "window-change" {
-				buf := bytes.NewReader(req.Payload)
-				err = binary.Read(buf, binary.BigEndian, &winSize)
-				pty.Setsize(bashPTY, &pty.Winsize{Cols: uint16(winSize.Width), Rows: uint16(winSize.Height)})
+				if err := resize(bashPTY, req.Payload); err != nil {
+					channel.Stderr().Write([]byte(fmt.Sprintf("Failed to resize pty: %v. ", err)))
+					channel.Close()
+					return
+				}
 			}
 		}
 	}(requests)
 
-	// Redirect pseudo-terminal output to client channel
 	go io.Copy(bashPTY, channel)
-	// Redirect client channel input to pseudo-terminal
 	io.Copy(channel, bashPTY)
+	return nil
+}
+
+func resize(bashPTY *os.File, payload []byte) error {
+	var winSize struct {
+		Width  uint32
+		Height uint32
+	}
+
+	buf := bytes.NewReader(payload)
+	err := binary.Read(buf, binary.BigEndian, &winSize)
+	if err != nil {
+		return fmt.Errorf("reading the window size: %v", err)
+	}
+	pty.Setsize(bashPTY, &pty.Winsize{Cols: uint16(winSize.Width), Rows: uint16(winSize.Height)})
 	return nil
 }
