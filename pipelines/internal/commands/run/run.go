@@ -374,10 +374,11 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		Environment: environment,
 	}
 
-	pipeline.Actions = append(pipeline.Actions, mkdir(directories))
+	pipeline.Actions = []*genomics.Action{mkdir(directories)}
 
-	sshActions := sshDebug(project)
-	pipeline.Actions = append(pipeline.Actions, sshActions...)
+	if *ssh {
+		pipeline.Actions = append(pipeline.Actions, sshDebug(project))
+	}
 
 	for _, v := range [][]*genomics.Action{localizers, actions, delocalizers} {
 		pipeline.Actions = append(pipeline.Actions, v...)
@@ -723,14 +724,11 @@ func gcsFuse(project string, buckets map[string]string) []*genomics.Action {
 	return actions
 }
 
-func sshDebug(project string) []*genomics.Action {
-	var actions []*genomics.Action
-	if *ssh {
-		actions = append(actions, &genomics.Action{
-			ImageUri:     fmt.Sprintf("gcr.io/%s/ssh-server", project),
-			PortMappings: map[string]int64{"22": 22},
-			Flags:        []string{"RUN_IN_BACKGROUND"},
-		})
+func sshDebug(project string) *genomics.Action {
+	return &genomics.Action{
+		ImageUri:     fmt.Sprintf("gcr.io/%s/ssh-server", project),
+		Commands:     []string{"-project", project},
+		PortMappings: map[string]int64{"22": 22},
+		Flags:        []string{"RUN_IN_BACKGROUND"},
 	}
-	return actions
 }

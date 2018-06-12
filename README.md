@@ -85,10 +85,10 @@ available to containers, since the entire bucket is mounted.
 
 ### SSH into the worker machine
 
-The pipelines tool can start a docker container with a ssh server on the same 
-machine as the worker, to allow you to access logs
+The pipelines tool can start an ssh container in the background to allow you 
+to log in using SSH and view logs in real time.
 
-To be able to use the --ssh flag you have to build a ssh-server docker container. 
+To be able to use the `--ssh` flag you have to build a ssh-server docker container. 
 To do this, enter the `ssh-server` subdirectory and run: 
 
 ```

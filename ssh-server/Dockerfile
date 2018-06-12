@@ -19,10 +19,9 @@ COPY . .
 
 RUN go get -d -v ./...
 RUN go install -v ./...
+RUN ssh-keygen -q -t rsa -N '' -f id_rsa
 
 EXPOSE 22
 
 # By default, the server listens on port 22
 ENTRYPOINT ["ssh-server"]
-
-RUN ssh-keygen -q -t rsa -N '' -f id_rsa
