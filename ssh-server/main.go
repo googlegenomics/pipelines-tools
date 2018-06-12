@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net"
+	"os"
 	"os/exec"
 
 	"github.com/kr/pty"
