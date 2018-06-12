@@ -10,13 +10,13 @@ import (
 	"io/ioutil"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 
 	"github.com/kr/pty"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/oauth2/google"
-	compute "google.golang.org/api/compute/v1"
 	genomics "google.golang.org/api/genomics/v1"
 )
 
@@ -65,7 +65,6 @@ func startServer() (*ssh.ServerConfig, net.Listener, error) {
 }
 
 func getConfiguration() (*ssh.ServerConfig, error) {
-
 	config := &ssh.ServerConfig{
 		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 			authorizedKeys, err := getAuthorizedKeys()
@@ -92,36 +91,34 @@ func getConfiguration() (*ssh.ServerConfig, error) {
 }
 
 func getAuthorizedKeys() (map[string]bool, error) {
-	ctx := context.Background()
-	client, err := google.DefaultClient(ctx, genomics.GenomicsScope)
+	client, err := google.DefaultClient(context.Background(), genomics.CloudPlatformScope)
 	if err != nil {
 		return nil, fmt.Errorf("creating authenticated client: %v", err)
 	}
 
-	gce, err := compute.New(client)
+	req, err := http.NewRequest("GET", "http://metadata.google.internal/computeMetadata/v1/project/attributes/ssh-keys", nil)
 	if err != nil {
-		return nil, fmt.Errorf("getting GCE service instance: %v", err)
+		return nil, fmt.Errorf("building the request: %v", err)
+	}
+	req.Header.Set("Metadata-Flavor", "Google")
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("getting ssh keys from metadata server: %v", err)
 	}
 
-	op, err := gce.Projects.Get(*project).Do()
+	keysBytes, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		return nil, fmt.Errorf("getting projects metadata: %v", err)
+		return nil, fmt.Errorf("reading the ssh keys: %v", err)
 	}
 
 	authorizedKeys := map[string]bool{}
-	for _, item := range op.CommonInstanceMetadata.Items {
-		if item.Key == "ssh-keys" {
-			keysBytes := []byte(*item.Value)
-			for len(keysBytes) > 0 {
-				pbkey, _, _, rest, err := ssh.ParseAuthorizedKey(keysBytes)
-				if err != nil {
-					return nil, fmt.Errorf("parsing authorized key: %v", err)
-				}
-				authorizedKeys[string(pbkey.Marshal())] = true
-				keysBytes = rest
-			}
-			break
+	for len(keysBytes) > 0 {
+		pbkey, _, _, rest, err := ssh.ParseAuthorizedKey(keysBytes)
+		if err != nil {
+			return nil, fmt.Errorf("parsing authorized key: %v", err)
 		}
+		authorizedKeys[string(pbkey.Marshal())] = true
+		keysBytes = rest
 	}
 	return authorizedKeys, nil
 }
