@@ -45,10 +45,6 @@ func main() {
 	}
 }
 
-func defaultProject() string {
-	return os.Getenv("GOOGLE_CLOUD_PROJECT")
-}
-
 func startServer(port uint) (*ssh.ServerConfig, net.Listener, error) {
 	config, err := getConfiguration()
 	if err != nil {
