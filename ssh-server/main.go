@@ -12,18 +12,18 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/kr/pty"
+	ptyutils "github.com/kr/pty"
 	"golang.org/x/crypto/ssh"
 )
 
 var (
-	serverPort = flag.Uint("port", uint(22), "the port to listen on")
+	port = flag.Uint("port", uint(22), "the port to listen on")
 )
 
 func main() {
 	flag.Parse()
 
-	config, listener, err := startServer(*serverPort)
+	config, listener, err := startServer(*port)
 	if err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
@@ -47,8 +47,7 @@ func startServer(port uint) (*ssh.ServerConfig, net.Listener, error) {
 		return nil, nil, fmt.Errorf("getting configuration: %v", err)
 	}
 
-	serverAddress := fmt.Sprintf(":%d", port)
-	listener, err := net.Listen("tcp", serverAddress)
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return nil, nil, fmt.Errorf("listen: %v", err)
 	}
@@ -99,11 +98,11 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 	defer channel.Close()
 
 	// Start the command with a pseudo-terminal.
-	bashPTY, err := pty.Start(exec.Command("bash"))
+	pty, err := ptyutils.Start(exec.Command("bash"))
 	if err != nil {
 		return fmt.Errorf("starting pty: %v", err)
 	}
-	defer bashPTY.Close()
+	defer pty.Close()
 
 	go func(in <-chan *ssh.Request) {
 		for req := range in {
@@ -112,38 +111,25 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 
 			if req.Type == "pty-req" {
 				skip := binary.BigEndian.Uint32(req.Payload)
-				if err := resize(bashPTY, req.Payload[4+skip:]); err != nil {
-					channel.Stderr().Write([]byte(fmt.Sprintf("Failed to resize pty: %v. ", err)))
-					channel.Close()
-					return
-				}
+				resize(pty, req.Payload[4+skip:])
 			}
 			if req.Type == "window-change" {
-				if err := resize(bashPTY, req.Payload); err != nil {
-					channel.Stderr().Write([]byte(fmt.Sprintf("Failed to resize pty: %v. ", err)))
-					channel.Close()
-					return
-				}
+				resize(pty, req.Payload)
 			}
 		}
 	}(requests)
 
-	go io.Copy(bashPTY, channel)
-	io.Copy(channel, bashPTY)
+	go io.Copy(pty, channel)
+	io.Copy(channel, pty)
 	return nil
 }
 
-func resize(bashPTY *os.File, payload []byte) error {
+func resize(f *os.File, payload []byte) {
 	var winSize struct {
 		Width  uint32
 		Height uint32
 	}
-
-	buf := bytes.NewReader(payload)
-	err := binary.Read(buf, binary.BigEndian, &winSize)
-	if err != nil {
-		return fmt.Errorf("reading the window size: %v", err)
+	if err := binary.Read(bytes.NewReader(payload), binary.BigEndian, &winSize); err == nil {
+		ptyutils.Setsize(f, &ptyutils.Winsize{Cols: uint16(winSize.Width), Rows: uint16(winSize.Height)})
 	}
-	pty.Setsize(bashPTY, &pty.Winsize{Cols: uint16(winSize.Width), Rows: uint16(winSize.Height)})
-	return nil
 }
