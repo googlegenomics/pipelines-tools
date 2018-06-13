@@ -2,11 +2,12 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/binary"
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -57,15 +58,17 @@ func startServer(port uint) (*ssh.ServerConfig, net.Listener, error) {
 func getConfiguration() (*ssh.ServerConfig, error) {
 	config := &ssh.ServerConfig{NoClientAuth: true}
 
-	privateBytes, err := ioutil.ReadFile("id_rsa")
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		return nil, fmt.Errorf("reading private server key: %v", err)
+		return nil, fmt.Errorf("generating server key pair: %v", err)
 	}
-	private, err := ssh.ParsePrivateKey(privateBytes)
+
+	signer, err := ssh.NewSignerFromKey(key)
 	if err != nil {
-		return nil, fmt.Errorf("parsing private server key: %v", err)
+		return nil, fmt.Errorf("generating crypto signer: %v", err)
 	}
-	config.AddHostKey(private)
+
+	config.AddHostKey(signer)
 	return config, nil
 }
 
