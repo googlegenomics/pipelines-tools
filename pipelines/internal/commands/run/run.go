@@ -162,7 +162,6 @@ var (
 	gpuType        = flags.String("gpu-type", "nvidia-tesla-k80", "the GPU type to attach")
 	command        = flags.String("command", "", "a single command line to execute")
 	fuse           = flags.Bool("fuse", false, "if true, use FUSE to localize inputs (see README)")
-	ssh            = flags.Bool("ssh", false, "if true, an ssh server will be started")
 	network        = flags.String("network", "", "the VPC network to use")
 	subnetwork     = flags.String("subnetwork", "", "the VPC subnetwork to use")
 )
@@ -375,10 +374,6 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 	}
 
 	pipeline.Actions = []*genomics.Action{mkdir(directories)}
-
-	if *ssh {
-		pipeline.Actions = append(pipeline.Actions, sshDebug(project))
-	}
 
 	for _, v := range [][]*genomics.Action{localizers, actions, delocalizers} {
 		pipeline.Actions = append(pipeline.Actions, v...)
@@ -722,12 +717,4 @@ func gcsFuse(project string, buckets map[string]string) []*genomics.Action {
 		})
 	}
 	return actions
-}
-
-func sshDebug(project string) *genomics.Action {
-	return &genomics.Action{
-		ImageUri:     fmt.Sprintf("gcr.io/%s/ssh-server", project),
-		PortMappings: map[string]int64{"22": 22},
-		Flags:        []string{"RUN_IN_BACKGROUND"},
-	}
 }
