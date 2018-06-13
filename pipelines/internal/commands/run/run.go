@@ -374,7 +374,6 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 	}
 
 	pipeline.Actions = []*genomics.Action{mkdir(directories)}
-
 	for _, v := range [][]*genomics.Action{localizers, actions, delocalizers} {
 		pipeline.Actions = append(pipeline.Actions, v...)
 	}
