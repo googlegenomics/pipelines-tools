@@ -12,7 +12,7 @@ import (
 	"os"
 	"os/exec"
 
-	ptyutils "github.com/kr/pty"
+	"github.com/kr/pty"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -98,11 +98,11 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 	defer channel.Close()
 
 	// Start the command with a pseudo-terminal.
-	pty, err := ptyutils.Start(exec.Command("bash"))
+	shell, err := pty.Start(exec.Command("bash"))
 	if err != nil {
 		return fmt.Errorf("starting pty: %v", err)
 	}
-	defer pty.Close()
+	defer shell.Close()
 
 	go func(in <-chan *ssh.Request) {
 		for req := range in {
@@ -111,16 +111,16 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 
 			if req.Type == "pty-req" {
 				skip := binary.BigEndian.Uint32(req.Payload)
-				resize(pty, req.Payload[4+skip:])
+				resize(shell, req.Payload[4+skip:])
 			}
 			if req.Type == "window-change" {
-				resize(pty, req.Payload)
+				resize(shell, req.Payload)
 			}
 		}
 	}(requests)
 
-	go io.Copy(pty, channel)
-	io.Copy(channel, pty)
+	go io.Copy(shell, channel)
+	io.Copy(channel, shell)
 	return nil
 }
 
@@ -130,6 +130,6 @@ func resize(f *os.File, payload []byte) {
 		Height uint32
 	}
 	if err := binary.Read(bytes.NewReader(payload), binary.BigEndian, &winSize); err == nil {
-		ptyutils.Setsize(f, &ptyutils.Winsize{Cols: uint16(winSize.Width), Rows: uint16(winSize.Height)})
+		pty.Setsize(f, &pty.Winsize{Cols: uint16(winSize.Width), Rows: uint16(winSize.Height)})
 	}
 }
