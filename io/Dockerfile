@@ -16,5 +16,5 @@ FROM google/cloud-sdk:alpine
 
 RUN apk --no-cache add go musl-dev
 
-COPY retry.go .
+COPY retry/retry.go .
 RUN go build -o /usr/local/bin/retry retry.go
