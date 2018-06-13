@@ -164,6 +164,7 @@ var (
 	fuse           = flags.Bool("fuse", false, "if true, use FUSE to localize inputs (see README)")
 	network        = flags.String("network", "", "the VPC network to use")
 	subnetwork     = flags.String("subnetwork", "", "the VPC subnetwork to use")
+	sharedPid      = flags.Bool("shared-pid", false, "if true, all actions will share the same PID namespace")
 )
 
 func init() {
@@ -380,6 +381,12 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 
 	addRequiredDisks(pipeline)
 	addRequiredScopes(pipeline)
+
+	if *sharedPid {
+		for _, action := range pipeline.Actions {
+			action.PidNamespace = "shared"
+		}
+	}
 
 	labels := make(map[string]string)
 	if *name != "" {
