@@ -19,7 +19,6 @@ COPY . .
 
 RUN go get -d -v ./...
 RUN go install -v ./...
-RUN ssh-keygen -q -t rsa -N '' -f id_rsa
 
 EXPOSE 22
 
