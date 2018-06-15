@@ -12,15 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM golang:1.10
+FROM google/cloud-sdk:alpine
 
-WORKDIR /go/src/github.com/googlegenomics/pipelines-tools/ssh-server
-COPY . .
+RUN apk --no-cache add go musl-dev
 
-RUN go get -d -v ./...
-RUN go install -v ./...
-
-EXPOSE 22
-
-# By default, the server listens on port 22
-ENTRYPOINT ["ssh-server"]
+COPY retry/retry.go .
+RUN go build -o /usr/local/bin/retry retry.go

@@ -3,11 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/binary"
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -21,13 +22,13 @@ import (
 )
 
 var (
-	serverPort = flag.Uint("port", uint(22), "the port to listen on")
+	port = flag.Uint("port", uint(22), "the port to listen on")
 )
 
 func main() {
 	flag.Parse()
 
-	config, listener, err := startServer(*serverPort)
+	config, listener, err := startServer(*port)
 	if err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
@@ -51,8 +52,7 @@ func startServer(port uint) (*ssh.ServerConfig, net.Listener, error) {
 		return nil, nil, fmt.Errorf("getting configuration: %v", err)
 	}
 
-	serverAddress := fmt.Sprintf(":%d", port)
-	listener, err := net.Listen("tcp", serverAddress)
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return nil, nil, fmt.Errorf("listen: %v", err)
 	}
@@ -73,15 +73,18 @@ func getConfiguration() (*ssh.ServerConfig, error) {
 			return nil, nil
 		},
 	}
-	privateBytes, err := ioutil.ReadFile("id_rsa")
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		return nil, fmt.Errorf("reading private server key: %v", err)
+		return nil, fmt.Errorf("generating server key pair: %v", err)
 	}
-	private, err := ssh.ParsePrivateKey(privateBytes)
+
+	signer, err := ssh.NewSignerFromKey(key)
 	if err != nil {
-		return nil, fmt.Errorf("parsing private server key: %v", err)
+		return nil, fmt.Errorf("creating signer: %v", err)
 	}
-	config.AddHostKey(private)
+
+	config.AddHostKey(signer)
 	return config, nil
 }
 
@@ -147,11 +150,11 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 	defer channel.Close()
 
 	// Start the command with a pseudo-terminal.
-	bashPTY, err := pty.Start(exec.Command("bash"))
+	shell, err := pty.Start(exec.Command("bash"))
 	if err != nil {
 		return fmt.Errorf("starting pty: %v", err)
 	}
-	defer bashPTY.Close()
+	defer shell.Close()
 
 	go func(in <-chan *ssh.Request) {
 		for req := range in {
@@ -160,38 +163,24 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 
 			if req.Type == "pty-req" {
 				skip := binary.BigEndian.Uint32(req.Payload)
-				if err := resize(bashPTY, req.Payload[4+skip:]); err != nil {
-					channel.Stderr().Write([]byte(fmt.Sprintf("Failed to resize pty: %v. ", err)))
-					channel.Close()
-					return
-				}
+				resize(shell, req.Payload[4+skip:])
 			}
 			if req.Type == "window-change" {
-				if err := resize(bashPTY, req.Payload); err != nil {
-					channel.Stderr().Write([]byte(fmt.Sprintf("Failed to resize pty: %v. ", err)))
-					channel.Close()
-					return
-				}
+				resize(shell, req.Payload)
 			}
 		}
 	}(requests)
 
-	go io.Copy(bashPTY, channel)
-	io.Copy(channel, bashPTY)
+	go io.Copy(shell, channel)
+	io.Copy(channel, shell)
 	return nil
 }
 
-func resize(bashPTY *os.File, payload []byte) error {
-	var winSize struct {
-		Width  uint32
-		Height uint32
+func resize(f *os.File, payload []byte) {
+	var size struct {
+		Width, Height uint32
 	}
-
-	buf := bytes.NewReader(payload)
-	err := binary.Read(buf, binary.BigEndian, &winSize)
-	if err != nil {
-		return fmt.Errorf("reading the window size: %v", err)
+	if err := binary.Read(bytes.NewReader(payload), binary.BigEndian, &size); err == nil {
+		pty.Setsize(f, &pty.Winsize{Cols: uint16(size.Width), Rows: uint16(size.Height)})
 	}
-	pty.Setsize(bashPTY, &pty.Winsize{Cols: uint16(winSize.Width), Rows: uint16(winSize.Height)})
-	return nil
 }

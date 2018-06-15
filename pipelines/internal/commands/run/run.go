@@ -150,6 +150,7 @@ var (
 	inputs         = flags.String("inputs", "", "comma separated list of GCS objects to localize to the VM")
 	outputs        = flags.String("outputs", "", "comma separated list of GCS objects to delocalize from the VM")
 	diskSizeGb     = flags.Int("disk-size", 500, "the attached disk size (in GB)")
+	diskType       = flags.String("disk-type", "", "the disk type to use for the attached disk(s)")
 	diskImage      = flags.String("disk-image", "", "optional image to pre-load onto the attached disk")
 	bootDiskSizeGb = flags.Int("boot-disk-size", 0, "if non-zero, specifies the boot disk size (in GB)")
 	privateAddress = flags.Bool("private-address", false, "use a private IP address")
@@ -165,6 +166,7 @@ var (
 	ssh            = flags.Bool("ssh", false, "if true, an ssh server will be started")
 	network        = flags.String("network", "", "the VPC network to use")
 	subnetwork     = flags.String("subnetwork", "", "the VPC subnetwork to use")
+	sharePIDs      = flags.Bool("share-pids", false, "if true, all actions will share the same PID namespace")
 )
 
 func init() {
@@ -387,6 +389,12 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 	addRequiredDisks(pipeline)
 	addRequiredScopes(pipeline)
 
+	if *sharePIDs {
+		for _, action := range pipeline.Actions {
+			action.PidNamespace = "shared"
+		}
+	}
+
 	labels := make(map[string]string)
 	if *name != "" {
 		labels["name"] = *name
@@ -499,6 +507,7 @@ func addRequiredDisks(pipeline *genomics.Pipeline) {
 	for name := range disks {
 		disk := &genomics.Disk{
 			Name:   name,
+			Type:   *diskType,
 			SizeGb: int64(*diskSizeGb),
 		}
 		if *diskImage != "" && name == googleRoot.Disk {
