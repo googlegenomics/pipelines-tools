@@ -65,7 +65,7 @@ func getConfiguration() (*ssh.ServerConfig, error) {
 
 	signer, err := ssh.NewSignerFromKey(key)
 	if err != nil {
-		return nil, fmt.Errorf("generating crypto signer: %v", err)
+		return nil, fmt.Errorf("creating signer: %v", err)
 	}
 
 	config.AddHostKey(signer)
@@ -128,11 +128,10 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 }
 
 func resize(f *os.File, payload []byte) {
-	var winSize struct {
-		Width  uint32
-		Height uint32
+	var size struct {
+		Width, Height uint32
 	}
-	if err := binary.Read(bytes.NewReader(payload), binary.BigEndian, &winSize); err == nil {
-		pty.Setsize(f, &pty.Winsize{Cols: uint16(winSize.Width), Rows: uint16(winSize.Height)})
+	if err := binary.Read(bytes.NewReader(payload), binary.BigEndian, &size); err == nil {
+		pty.Setsize(f, &pty.Winsize{Cols: uint16(size.Width), Rows: uint16(size.Height)})
 	}
 }
