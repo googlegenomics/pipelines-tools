@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -70,7 +71,7 @@ func getConfiguration() (*ssh.ServerConfig, error) {
 		return nil, fmt.Errorf("creating signer: %v", err)
 	}
 
-  config := &ssh.ServerConfig{
+	config := &ssh.ServerConfig{
 		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 			authorizedKeys, err := getAuthorizedKeys()
 			if err != nil {
