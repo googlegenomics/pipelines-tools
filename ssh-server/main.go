@@ -22,7 +22,7 @@ import (
 )
 
 var (
-	port = flag.Uint("port", uint(22), "the port to listen on")
+	port = flag.Uint("port", 22, "the port to listen on")
 )
 
 func main() {
@@ -60,7 +60,17 @@ func startServer(port uint) (*ssh.ServerConfig, net.Listener, error) {
 }
 
 func getConfiguration() (*ssh.ServerConfig, error) {
-	config := &ssh.ServerConfig{
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, fmt.Errorf("generating server key pair: %v", err)
+	}
+
+	signer, err := ssh.NewSignerFromKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("creating signer: %v", err)
+	}
+
+  config := &ssh.ServerConfig{
 		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 			authorizedKeys, err := getAuthorizedKeys()
 			if err != nil {
@@ -73,17 +83,6 @@ func getConfiguration() (*ssh.ServerConfig, error) {
 			return nil, nil
 		},
 	}
-
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return nil, fmt.Errorf("generating server key pair: %v", err)
-	}
-
-	signer, err := ssh.NewSignerFromKey(key)
-	if err != nil {
-		return nil, fmt.Errorf("creating signer: %v", err)
-	}
-
 	config.AddHostKey(signer)
 	return config, nil
 }

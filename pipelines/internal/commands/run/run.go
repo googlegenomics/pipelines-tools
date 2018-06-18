@@ -66,9 +66,9 @@ package run
 // attached disk.  Files written to this location are not automatically
 // delocalized.
 //
-// As a convenience, the tool will automatically use the google/cloud-sdk image
+// As a convenience, the tool will automatically use the cloud SDK image
 // whenever the command line starts with gsutil or gcloud, and will
-// automatically include the cloud-platform API scope whenever the cloud-sdk
+// automatically include the cloud-platform API scope whenever the cloud SDK
 // container is used.
 //
 // If the --output flag is specified, an action is appended that copies the
@@ -523,7 +523,7 @@ func addRequiredDisks(pipeline *genomics.Pipeline) {
 func addRequiredScopes(pipeline *genomics.Pipeline) {
 	scopes := &pipeline.Resources.VirtualMachine.ServiceAccount.Scopes
 	for _, action := range pipeline.Actions {
-		if strings.HasPrefix(action.ImageUri, "google/cloud-sdk") || (len(action.Commands) > 0 && isCloudCommand(action.Commands[0])) {
+		if action.ImageUri == *cloudSDKImage || (len(action.Commands) > 0 && isCloudCommand(action.Commands[0])) {
 			*scopes = append(*scopes, "https://www.googleapis.com/auth/devstorage.read_write")
 			return
 		}

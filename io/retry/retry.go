@@ -23,6 +23,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path"
 	"strings"
 	"syscall"
 )
@@ -42,7 +43,11 @@ func main() {
 
 		if err := command.Run(); err != nil {
 			if !isRetriable(tool, err) {
-				os.Exit(err.(*exec.ExitError).Sys().(syscall.WaitStatus).ExitStatus())
+				if err, ok := err.(*exec.ExitError); ok {
+					os.Exit(err.Sys().(syscall.WaitStatus).ExitStatus())
+				}
+				fmt.Fprintf(os.Stderr, "Failed to run command: %v\n", err)
+				os.Exit(1)
 			}
 			log.Printf("%q exited with a retriable error: %v", tool, err)
 			continue
@@ -53,7 +58,7 @@ func main() {
 }
 
 func isRetriable(tool string, err error) bool {
-	if tool == "gsutil" {
+	if path.Base(tool) == "gsutil" {
 		// Requests to the local metadata service can fail transiently.
 		return strings.Contains(err.Error(), `Your "GCE" credentials are invalid`)
 	}
