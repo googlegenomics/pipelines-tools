@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	port = flag.Uint("port", uint(22), "the port to listen on")
+	port = flag.Uint("port", 22, "the port to listen on")
 )
 
 func main() {
