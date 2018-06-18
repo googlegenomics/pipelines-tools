@@ -56,8 +56,6 @@ func startServer(port uint) (*ssh.ServerConfig, net.Listener, error) {
 }
 
 func getConfiguration() (*ssh.ServerConfig, error) {
-	config := &ssh.ServerConfig{NoClientAuth: true}
-
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return nil, fmt.Errorf("generating server key pair: %v", err)
@@ -68,6 +66,7 @@ func getConfiguration() (*ssh.ServerConfig, error) {
 		return nil, fmt.Errorf("creating signer: %v", err)
 	}
 
+	config := &ssh.ServerConfig{NoClientAuth: true}
 	config.AddHostKey(signer)
 	return config, nil
 }
