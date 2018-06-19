@@ -2,10 +2,10 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/binary"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -18,8 +18,6 @@ import (
 
 	"github.com/kr/pty"
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/oauth2/google"
-	genomics "google.golang.org/api/genomics/v1"
 )
 
 var (
@@ -79,7 +77,7 @@ func getConfiguration() (*ssh.ServerConfig, error) {
 			}
 
 			if !authorizedKeys[string(key.Marshal())] {
-				return nil, fmt.Errorf("authorizing key: %v", err)
+				return nil, errors.New("unauthorized")
 			}
 			return nil, nil
 		},
@@ -89,17 +87,12 @@ func getConfiguration() (*ssh.ServerConfig, error) {
 }
 
 func getAuthorizedKeys() (map[string]bool, error) {
-	client, err := google.DefaultClient(context.Background(), genomics.CloudPlatformScope)
-	if err != nil {
-		return nil, fmt.Errorf("creating authenticated client: %v", err)
-	}
-
 	req, err := http.NewRequest("GET", "http://metadata.google.internal/computeMetadata/v1/project/attributes/ssh-keys", nil)
 	if err != nil {
 		return nil, fmt.Errorf("building the request: %v", err)
 	}
 	req.Header.Set("Metadata-Flavor", "Google")
-	res, err := client.Do(req)
+	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("getting ssh keys from metadata server: %v", err)
 	}
