@@ -83,6 +83,20 @@ docker push gcr.io/${GOOGLE_CLOUD_PROJECT}/gcsfuse
 2. Files other than those directly mentioned by the `--inputs` flag will be
 available to containers, since the entire bucket is mounted.
 
+### SSH into the worker machine
+
+The pipelines tool can start an ssh container in the background to allow you 
+to log in using SSH and view logs in real time.
+
+To be able to use the `--ssh` flag you have to build a ssh-server docker container. 
+To do this, enter the `ssh-server` subdirectory and run: 
+
+```
+gcloud auth configure-docker
+docker build -t gcr.io/${GOOGLE_CLOUD_PROJECT}/ssh-server .
+docker push gcr.io/${GOOGLE_CLOUD_PROJECT}/ssh-server
+```
+
 ## The `migrate-pipeline` tool
 
 This tool takes a JSON encoded v1alpha2 run pipeline request and attempts to
