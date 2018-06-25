@@ -24,7 +24,7 @@ import (
 )
 
 var (
-	flags flag.FlagSet
+	flags = flag.NewFlagSet("", flag.ExitOnError)
 
 	filter = flags.String("filter", "", "the query filter")
 	limit  = flags.Uint("limit", 32, "the maximum number of operations to list")
