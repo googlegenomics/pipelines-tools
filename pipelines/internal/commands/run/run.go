@@ -136,6 +136,8 @@ import (
 var (
 	googleRoot  = &genomics.Mount{Disk: "google", Path: "/mnt/google"}
 	environment = make(map[string]string)
+	labels      = make(map[string]string)
+	vmLabels    = make(map[string]string)
 
 	flags = flag.NewFlagSet("", flag.ExitOnError)
 
@@ -171,6 +173,8 @@ var (
 
 func init() {
 	flags.Var(&common.MapFlagValue{environment}, "set", "sets an environment variable (e.g. NAME[=VALUE])")
+	flags.Var(&common.MapFlagValue{labels}, "labels", "label names and values to apply to the operation")
+	flags.Var(&common.MapFlagValue{vmLabels}, "vm-labels", "label names and values to apply to the virtual machine")
 }
 
 func Invoke(ctx context.Context, service *genomics.Service, project string, arguments []string) error {
@@ -350,6 +354,7 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 			UsePrivateAddress: *privateAddress,
 		},
 		ServiceAccount: &genomics.ServiceAccount{Scopes: listOf(*scopes)},
+		Labels:         vmLabels,
 	}
 
 	if *network != "" {
@@ -395,7 +400,6 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		}
 	}
 
-	labels := make(map[string]string)
 	if *name != "" {
 		labels["name"] = *name
 	}
