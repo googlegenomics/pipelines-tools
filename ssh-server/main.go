@@ -9,13 +9,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 
+	"github.com/googlegenomics/pipelines-tools/gce"
 	"github.com/kr/pty"
 	"golang.org/x/crypto/ssh"
 )
@@ -71,7 +70,7 @@ func getConfiguration() (*ssh.ServerConfig, error) {
 
 	config := &ssh.ServerConfig{
 		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
-			authorizedKeys, err := getAuthorizedKeys()
+			authorizedKeys, err := gce.GetAuthorizedKeys()
 			if err != nil {
 				return nil, fmt.Errorf("getting the authorized keys: %v", err)
 			}
@@ -84,34 +83,6 @@ func getConfiguration() (*ssh.ServerConfig, error) {
 	}
 	config.AddHostKey(signer)
 	return config, nil
-}
-
-func getAuthorizedKeys() (map[string]bool, error) {
-	req, err := http.NewRequest("GET", "http://metadata.google.internal/computeMetadata/v1/project/attributes/ssh-keys", nil)
-	if err != nil {
-		return nil, fmt.Errorf("building the request: %v", err)
-	}
-	req.Header.Set("Metadata-Flavor", "Google")
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("getting ssh keys from metadata server: %v", err)
-	}
-
-	keysBytes, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading the ssh keys: %v", err)
-	}
-
-	authorizedKeys := map[string]bool{}
-	for len(keysBytes) > 0 {
-		pbkey, _, _, rest, err := ssh.ParseAuthorizedKey(keysBytes)
-		if err != nil {
-			return nil, fmt.Errorf("parsing authorized key: %v", err)
-		}
-		authorizedKeys[string(pbkey.Marshal())] = true
-		keysBytes = rest
-	}
-	return authorizedKeys, nil
 }
 
 func handleConnection(conn net.Conn, serverConfig *ssh.ServerConfig) error {
