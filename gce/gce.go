@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package gce provides methods for querying the gce metadata
+// Package gce provides methods for querying the GCE metadata
 package gce
 
 import (
@@ -23,9 +23,11 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// GetAuthorizedKeys retrieves the authorized ssh keys from the metadata server running on a GCE instance
+// GetAuthorizedKeys returns the set of authorized SSH keys.
 func GetAuthorizedKeys() (map[string]bool, error) {
-	req, err := http.NewRequest("GET", "http://metadata.google.internal/computeMetadata/v1/project/attributes/ssh-keys", nil)
+	req, err := http.NewRequest("GET",
+		"http://metadata.google.internal/computeMetadata/v1/project/attributes/ssh-keys",
+		nil)
 	if err != nil {
 		return nil, fmt.Errorf("building the request: %v", err)
 	}
