@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package gce provides methods for querying the GCE metadata
+// Package gce provides methods for querying the GCE metadata.
 package gce
 
 import (
