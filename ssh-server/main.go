@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/binary"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/googlegenomics/pipelines-tools/gce"
 	"github.com/kr/pty"
 	"golang.org/x/crypto/ssh"
 )
@@ -66,7 +68,19 @@ func getConfiguration() (*ssh.ServerConfig, error) {
 		return nil, fmt.Errorf("creating signer: %v", err)
 	}
 
-	config := &ssh.ServerConfig{NoClientAuth: true}
+	config := &ssh.ServerConfig{
+		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+			authorizedKeys, err := gce.GetAuthorizedKeys()
+			if err != nil {
+				return nil, fmt.Errorf("getting the authorized keys: %v", err)
+			}
+
+			if !authorizedKeys[string(key.Marshal())] {
+				return nil, errors.New("unauthorized")
+			}
+			return nil, nil
+		},
+	}
 	config.AddHostKey(signer)
 	return config, nil
 }
