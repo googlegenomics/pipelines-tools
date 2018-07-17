@@ -151,7 +151,7 @@ var (
 	machineType    = flags.String("machine-type", "n1-standard-1", "machine type to create")
 	inputs         = flags.String("inputs", "", "comma separated list of GCS objects to localize to the VM")
 	outputs        = flags.String("outputs", "", "comma separated list of GCS objects to delocalize from the VM")
-	diskSizeGb     = flags.Int("disk-size", 500, "the attached disk size (in GB)")
+	diskSizeGb     = flags.Int("disk-size", 0, "if non-zero, overrides the default attached disk size (in GB)")
 	diskType       = flags.String("disk-type", "", "the disk type to use for the attached disk(s)")
 	diskImage      = flags.String("disk-image", "", "optional image to pre-load onto the attached disk")
 	bootDiskSizeGb = flags.Int("boot-disk-size", 0, "if non-zero, specifies the boot disk size (in GB)")
