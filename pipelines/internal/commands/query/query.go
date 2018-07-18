@@ -22,7 +22,6 @@ import (
 	"strings"
 
 	genomics "google.golang.org/api/genomics/v2alpha1"
-
 )
 
 var (
@@ -31,7 +30,6 @@ var (
 	filter = flags.String("filter", "", "the query filter")
 	limit  = flags.Uint("limit", 32, "the maximum number of operations to list")
 	all    = flags.Bool("all", false, "show all operations (when false, show only running operations)")
-
 )
 
 func Invoke(ctx context.Context, service *genomics.Service, project string, arguments []string) error {
@@ -41,7 +39,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 	call := service.Projects.Operations.List(path).Context(ctx)
 
 	if !*all {
-		*filter = strings.Join([]string{*filter,"done=false"}, " ")
+		*filter = strings.Join([]string{*filter, "done=false"}, " ")
 	}
 
 	if *filter != "" {
