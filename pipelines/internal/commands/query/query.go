@@ -28,6 +28,8 @@ var (
 
 	filter = flags.String("filter", "", "the query filter")
 	limit  = flags.Uint("limit", 32, "the maximum number of operations to list")
+	all    = flags.Bool("all", false, "show all running and completed operations ")
+
 )
 
 func Invoke(ctx context.Context, service *genomics.Service, project string, arguments []string) error {
@@ -35,6 +37,10 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 
 	path := fmt.Sprintf("projects/%s/operations", project)
 	call := service.Projects.Operations.List(path).Context(ctx)
+	if !*all {
+		call = call.Filter("done=false")
+	}
+
 	if *filter != "" {
 		call = call.Filter(*filter)
 	}
