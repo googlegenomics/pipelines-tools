@@ -43,7 +43,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 		s := []string{*filter,"done = false"}
 		*filter = strings.Join(s, " ")
 	}
-	
+
 	if *filter != "" {
 		call = call.Filter(*filter)
 	}
