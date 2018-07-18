@@ -19,9 +19,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"strings"
 
 	genomics "google.golang.org/api/genomics/v2alpha1"
-	"strings"
+
 )
 
 var (
@@ -40,8 +41,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 	call := service.Projects.Operations.List(path).Context(ctx)
 
 	if !*all {
-		s := []string{*filter,"done = false"}
-		*filter = strings.Join(s, " ")
+		*filter = strings.Join([]string{*filter,"done=false"}, " ")
 	}
 
 	if *filter != "" {
