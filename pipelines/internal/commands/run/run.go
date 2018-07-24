@@ -476,6 +476,14 @@ func parse(line string) (*genomics.Action, error) {
 		action.Entrypoint = "bash"
 	}
 
+	if timeout, ok := options["timeout"]; ok {
+		duration, err := time.ParseDuration(timeout)
+		if err != nil {
+			return nil, fmt.Errorf("parsing action timeout: %v", err)
+		}
+		action.Timeout = fmt.Sprintf("%.0fs", duration.Seconds())
+	}
+
 	action.ImageUri = detectImage(commands, options)
 	action.Mounts = []*genomics.Mount{googleRoot}
 
