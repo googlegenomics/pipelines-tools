@@ -479,7 +479,7 @@ func parse(line string) (*genomics.Action, error) {
 	if timeout, ok := options["timeout"]; ok {
 		duration, err := time.ParseDuration(timeout)
 		if err != nil {
-			return nil, fmt.Errorf("parsing action timeout : %v", err)
+			return nil, fmt.Errorf("parsing action timeout: %v", err)
 		}
 		action.Timeout = fmt.Sprintf("%.0fs", duration.Seconds())
 	}
