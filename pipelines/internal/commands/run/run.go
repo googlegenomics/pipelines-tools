@@ -477,7 +477,6 @@ func parse(line string) (*genomics.Action, error) {
 	}
 
 	if actionTimeout, ok := options["timeout"]; ok {
-		fmt.Println("This is a timeout ", actionTimeout)
 		action.Timeout = actionTimeout
 	}
 
