@@ -222,7 +222,7 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 			return fmt.Errorf("starting pipeline: %v", err)
 		}
 
-		cancelOnInterruptOrTimeout(ctx, service, lro.Name, *timeout, abort)
+		cancelOnInterrupt(ctx, service, lro.Name, abort)
 
 		fmt.Printf("Pipeline running as %q (attempt: %d, preemptible: %t)\n", lro.Name, attempt, req.Pipeline.Resources.VirtualMachine.Preemptible)
 		if *output != "" {
@@ -402,6 +402,10 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 
 	if *name != "" {
 		labels["name"] = *name
+	}
+
+	if *timeout != 0 {
+		pipeline.Timeout = fmt.Sprintf("%.0fs", (*timeout).Seconds())
 	}
 
 	return &genomics.RunPipelineRequest{Pipeline: pipeline, Labels: labels}, nil
@@ -672,18 +676,9 @@ func mkdir(directories []string) *genomics.Action {
 	return bash("mkdir -p " + strings.Join(arguments, " "))
 }
 
-func cancelOnInterruptOrTimeout(ctx context.Context, service *genomics.Service, name string, timeout time.Duration, abort chan os.Signal) {
-	var ticker <-chan time.Time
-	if timeout > 0 {
-		ticker = time.After(timeout)
-	}
-
+func cancelOnInterrupt(ctx context.Context, service *genomics.Service, name string, abort chan os.Signal) {
 	go func() {
-		select {
-		case <-abort:
-		case <-ticker:
-			fmt.Println("User specified timeout has been reached")
-		}
+		<-abort
 		fmt.Println("Cancelling operation...")
 		req := &genomics.CancelOperationRequest{}
 		if _, err := service.Projects.Operations.Cancel(name, req).Context(ctx).Do(); err != nil {
