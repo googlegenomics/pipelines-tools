@@ -678,9 +678,7 @@ func mkdir(directories []string) *genomics.Action {
 
 func cancelOnInterrupt(ctx context.Context, service *genomics.Service, name string, abort chan os.Signal) {
 	go func() {
-		select {
-		case <-abort:
-		}
+		<-abort
 		fmt.Println("Cancelling operation...")
 		req := &genomics.CancelOperationRequest{}
 		if _, err := service.Projects.Operations.Cancel(name, req).Context(ctx).Do(); err != nil {
