@@ -303,7 +303,7 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		for _, path := range buckets {
 			directories = append(directories, path)
 		}
-		localizers = append(localizers, gcsFuse(project, buckets)...)
+		localizers = append(localizers, gcsFuse(buckets)...)
 	}
 
 	var delocalizers []*genomics.Action
@@ -727,17 +727,17 @@ func gcsTransfer(remote string) func(from, to string) *genomics.Action {
 	}
 }
 
-func gcsFuse(project string, buckets map[string]string) []*genomics.Action {
+func gcsFuse(buckets map[string]string) []*genomics.Action {
 	var actions []*genomics.Action
 	for bucket, path := range buckets {
 		actions = append(actions, &genomics.Action{
-			ImageUri: fmt.Sprintf("gcr.io/%s/gcsfuse", project),
+			ImageUri: fmt.Sprintf("gcr.io/cloud-genomics-pipelines/gcsfuse"),
 			Commands: []string{"--implicit-dirs", "--foreground", bucket, path},
 			Flags:    []string{"ENABLE_FUSE", "RUN_IN_BACKGROUND"},
 			Mounts:   []*genomics.Mount{googleRoot},
 		})
 		actions = append(actions, &genomics.Action{
-			ImageUri: fmt.Sprintf("gcr.io/%s/gcsfuse", project),
+			ImageUri: fmt.Sprintf("gcr.io/cloud-genomics-pipelines/gcsfuse"),
 			Commands: []string{"wait", path},
 			Mounts:   []*genomics.Mount{googleRoot},
 		})

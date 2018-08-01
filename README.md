@@ -67,21 +67,11 @@ The script file format is described in the [source code for the command][3].
 
 ### Using gcsfuse with the pipelines tool
 
-The `pipelines` tool can use [gcsfuse][gcs-fuse] to localize input files
-instead of copying them one by one with `gsutil`.  There are a few important
-caveats when using the `--fuse` flag:
+Use `--fuse` flag to allow the `pipelines` tool to use [gcsfuse][gcs-fuse] to localize input files
+instead of copying them one by one with `gsutil`.
 
-1. You must build a gcsfuse docker container and push it into your project's
-Container Registry.  To do this, enter the `gcsfuse` subdirectory and run:
-
-```
-gcloud auth configure-docker
-docker build -t gcr.io/${GOOGLE_CLOUD_PROJECT}/gcsfuse .
-docker push gcr.io/${GOOGLE_CLOUD_PROJECT}/gcsfuse
-```
-
-2. Files other than those directly mentioned by the `--inputs` flag will be
-available to containers, since the entire bucket is mounted.
+Files other than those directly mentioned by the `--inputs` flag will be
+available to container, since the entire bucket is mounted.
 
 ### SSH into the worker machine
 
