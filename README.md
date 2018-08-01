@@ -70,7 +70,7 @@ The script file format is described in the [source code for the command][3].
 Use `--fuse` flag to allow the `pipelines` tool to use [gcsfuse][gcs-fuse] to localize input files
 instead of copying them one by one with `gsutil`.
 
-Files other than those directly mentioned by the `--inputs` flag will be
+**Note**: Files other than those directly mentioned by the `--inputs` flag will be
 available to container, since the entire bucket is mounted.
 
 ### SSH into the worker machine

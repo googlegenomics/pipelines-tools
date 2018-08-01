@@ -726,13 +726,13 @@ func gcsFuse(buckets map[string]string) []*genomics.Action {
 	var actions []*genomics.Action
 	for bucket, path := range buckets {
 		actions = append(actions, &genomics.Action{
-			ImageUri: fmt.Sprintf("gcr.io/cloud-genomics-pipelines/gcsfuse"),
+			ImageUri: "gcr.io/cloud-genomics-pipelines/gcsfuse",
 			Commands: []string{"--implicit-dirs", "--foreground", bucket, path},
 			Flags:    []string{"ENABLE_FUSE", "RUN_IN_BACKGROUND"},
 			Mounts:   []*genomics.Mount{googleRoot},
 		})
 		actions = append(actions, &genomics.Action{
-			ImageUri: fmt.Sprintf("gcr.io/cloud-genomics-pipelines/gcsfuse"),
+			ImageUri: "gcr.io/cloud-genomics-pipelines/gcsfuse",
 			Commands: []string{"wait", path},
 			Mounts:   []*genomics.Mount{googleRoot},
 		})
