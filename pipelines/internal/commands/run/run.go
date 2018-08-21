@@ -747,7 +747,8 @@ func gcsFuse(buckets map[string]string) []*genomics.Action {
 
 func sshDebug(project string) *genomics.Action {
 	return &genomics.Action{
-		ImageUri:     fmt.Sprintf("gcr.io/%s/ssh-server", project),
+		ImageUri:     "gcr.io/cloud-genomics-pipelines/tools",
+		Entrypoint:   "ssh-server",
 		PortMappings: map[string]int64{"22": 22},
 		Flags:        []string{"RUN_IN_BACKGROUND"},
 	}
