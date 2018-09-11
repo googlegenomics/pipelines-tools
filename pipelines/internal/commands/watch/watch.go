@@ -56,8 +56,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 func watch(ctx context.Context, service *genomics.Service, name string) (interface{}, error) {
 	var events []*genomics.Event
 	const minDelay = 5 * time.Second
-	const maxDelay = time.Minute
-	var backoffTimer = minDelay
+	var delay = minDelay
 	for {
 		lro, err := service.Projects.Operations.Get(name).Context(ctx).Do()
 		if err != nil {
@@ -79,7 +78,7 @@ func watch(ctx context.Context, service *genomics.Service, name string) (interfa
 				}
 			}
 			events = metadata.Events
-			backoffTimer = minDelay
+			delay = minDelay
 		}
 
 		if lro.Done {
@@ -89,10 +88,10 @@ func watch(ctx context.Context, service *genomics.Service, name string) (interfa
 			return lro.Response, nil
 		}
 
-		time.Sleep(backoffTimer)
-		backoffTimer = time.Duration(float64(backoffTimer) * 1.5)
-		if backoffTimer > maxDelay {
-			backoffTimer = maxDelay
+		time.Sleep(delay)
+		delay = time.Duration(float64(delay) * 1.5)
+		if limit := time.Minute; delay > limit {
+			delay = limit
 		}
 	}
 }
