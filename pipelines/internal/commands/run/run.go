@@ -170,6 +170,7 @@ var (
 	subnetwork     = flags.String("subnetwork", "", "the VPC subnetwork to use")
 	sharePIDs      = flags.Bool("share-pids", false, "if true, all actions will share the same PID namespace")
 	cosChannel     = flags.String("cos-channel", "", "if set, specifies the COS release channel to use")
+	serviceAccount = flags.String("service-account", "", "if set, specifies the service account for the VM")
 )
 
 func init() {
@@ -354,8 +355,11 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		Network: &genomics.Network{
 			UsePrivateAddress: *privateAddress,
 		},
-		ServiceAccount: &genomics.ServiceAccount{Scopes: listOf(*scopes)},
-		Labels:         vmLabels,
+		ServiceAccount: &genomics.ServiceAccount{
+			Email:  *serviceAccount,
+			Scopes: listOf(*scopes),
+		},
+		Labels: vmLabels,
 	}
 
 	if channel := *cosChannel; channel != "" {
