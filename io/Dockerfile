@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM google/cloud-sdk:alpine
+FROM google/cloud-sdk:slim
 
 RUN apk --no-cache add go musl-dev
 
