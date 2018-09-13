@@ -28,8 +28,8 @@ import (
 	v2 "google.golang.org/api/genomics/v2alpha1"
 )
 
-// The 'alpine' variant is about 10x smaller than the default.
-const cloudSDKImage = "google/cloud-sdk:alpine"
+// The 'slim' variant is about 3x smaller than the default.
+const cloudSDKImage = "google/cloud-sdk:slim"
 
 func main() {
 	var input v1.RunPipelineRequest
