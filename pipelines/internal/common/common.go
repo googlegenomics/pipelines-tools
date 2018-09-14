@@ -47,10 +47,12 @@ func (m *MapFlagValue) String() string {
 }
 
 func (m *MapFlagValue) Set(input string) error {
-	if i := strings.Index(input, "="); i >= 0 {
-		m.Values[input[0:i]] = input[i+1:]
-	} else {
-		m.Values[input] = ""
+	for _, input = range strings.Split(input, ",") {
+		if i := strings.Index(input, "="); i >= 0 {
+			m.Values[input[0:i]] = input[i+1:]
+		} else {
+			m.Values[input] = ""
+		}
 	}
 	return nil
 }
