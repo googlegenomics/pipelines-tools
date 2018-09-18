@@ -156,7 +156,7 @@ var (
 	diskImage      = flags.String("disk-image", "", "optional image to pre-load onto the attached disk")
 	bootDiskSizeGb = flags.Int("boot-disk-size", 0, "if non-zero, specifies the boot disk size (in GB)")
 	privateAddress = flags.Bool("private-address", false, "use a private IP address")
-	cloudSDKImage  = flags.String("cloud-sdk-image", "google/cloud-sdk:183.0.0-alpine", "the cloud SDK image to use")
+	cloudSDKImage  = flags.String("cloud-sdk-image", "google/cloud-sdk:slim", "the cloud SDK image to use")
 	timeout        = flags.Duration("timeout", 0, "how long to wait before the operation is abandoned")
 	defaultImage   = flags.String("image", "bash", "the default image to use when executing commands")
 	attempts       = flags.Uint("attempts", 0, "number of attempts on non-fatal failure, using non-preemptible VM")
@@ -170,6 +170,7 @@ var (
 	subnetwork     = flags.String("subnetwork", "", "the VPC subnetwork to use")
 	sharePIDs      = flags.Bool("share-pids", false, "if true, all actions will share the same PID namespace")
 	cosChannel     = flags.String("cos-channel", "", "if set, specifies the COS release channel to use")
+	serviceAccount = flags.String("service-account", "", "if set, specifies the service account for the VM")
 )
 
 func init() {
@@ -354,8 +355,11 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		Network: &genomics.Network{
 			UsePrivateAddress: *privateAddress,
 		},
-		ServiceAccount: &genomics.ServiceAccount{Scopes: listOf(*scopes)},
-		Labels:         vmLabels,
+		ServiceAccount: &genomics.ServiceAccount{
+			Email:  *serviceAccount,
+			Scopes: listOf(*scopes),
+		},
+		Labels: vmLabels,
 	}
 
 	if channel := *cosChannel; channel != "" {
