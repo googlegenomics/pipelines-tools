@@ -56,7 +56,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 func watch(ctx context.Context, service *genomics.Service, name string) (interface{}, error) {
 	var events []*genomics.Event
 	const initialDelay = 5 * time.Second
-	var delay = initialDelay
+	delay := initialDelay
 	for {
 		lro, err := service.Projects.Operations.Get(name).Context(ctx).Do()
 		if err != nil {
