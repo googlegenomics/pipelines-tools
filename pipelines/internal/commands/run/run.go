@@ -171,6 +171,7 @@ var (
 	sharePIDs      = flags.Bool("share-pids", false, "if true, all actions will share the same PID namespace")
 	cosChannel     = flags.String("cos-channel", "", "if set, specifies the COS release channel to use")
 	serviceAccount = flags.String("service-account", "", "if set, specifies the service account for the VM")
+	logsInterval   = flags.Duration("logsInterval", 0, "if non-zero, specifies the time interval for logging output during runs")
 )
 
 func init() {
@@ -324,6 +325,10 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		action := gsutil("cp", "/google/logs/output", *output)
 		action.Flags = []string{"ALWAYS_RUN"}
 		delocalizers = append(delocalizers, action)
+		if *logsInterval != 0 {
+			action := periodicLogs("while true", fmt.Sprintf("do gsutil -q cp /google/logs/output %s", *output), fmt.Sprintf("sleep %.0f", (*logsInterval).Seconds()), "done")
+			localizers = append(localizers, action)
+		}
 	}
 
 	var actions []*genomics.Action
@@ -755,5 +760,15 @@ func sshDebug(project string) *genomics.Action {
 		Entrypoint:   "ssh-server",
 		PortMappings: map[string]int64{"22": 22},
 		Flags:        []string{"RUN_IN_BACKGROUND"},
+	}
+}
+
+func periodicLogs(arguments ...string) *genomics.Action {
+	return &genomics.Action{
+		ImageUri:   *cloudSDKImage,
+		Commands:   []string{"-c", strings.Join(arguments, "; ")},
+		Mounts:     []*genomics.Mount{googleRoot},
+		Entrypoint: "bash",
+		Flags:      []string{"RUN_IN_BACKGROUND"},
 	}
 }
