@@ -171,6 +171,7 @@ var (
 	sharePIDs      = flags.Bool("share-pids", false, "if true, all actions will share the same PID namespace")
 	cosChannel     = flags.String("cos-channel", "", "if set, specifies the COS release channel to use")
 	serviceAccount = flags.String("service-account", "", "if set, specifies the service account for the VM")
+	outputInterval = flags.Duration("output-interval", 0, "if non-zero, specifies the time interval for logging output during runs")
 )
 
 func init() {
@@ -327,13 +328,19 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 	}
 
 	var actions []*genomics.Action
+	if *outputInterval != 0 && *output != "" {
+		action := bash(fmt.Sprintf("while true; do sleep %.0f; gsutil -q cp /google/logs/output %s; done", (*outputInterval).Seconds(), *output))
+		action.Flags = []string{"RUN_IN_BACKGROUND"}
+		actions = append(actions, action)
+	}
+
 	if filename != "" {
 		if err := parseJSON(filename, &actions); err != nil {
 			v, err := parseScript(filename)
 			if err != nil {
 				return nil, fmt.Errorf("creating pipeline from script: %v", err)
 			}
-			actions = v
+			actions = append(actions, v...)
 		}
 	} else if *command != "" {
 		action, err := parse(*command)
