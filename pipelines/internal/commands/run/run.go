@@ -329,7 +329,7 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 
 	var actions []*genomics.Action
 	if *outputInterval != 0 && *output != "" {
-		action := bash(fmt.Sprintf("while true; sleep %.0f; do gsutil -q cp /google/logs/output %s; done", (*outputInterval).Seconds(), *output))
+		action := bash(fmt.Sprintf("while true; do sleep %.0f; gsutil -q cp /google/logs/output %s; done", (*outputInterval).Seconds(), *output))
 		action.Flags = []string{"RUN_IN_BACKGROUND"}
 		actions = append(actions, action)
 	}
