@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/commands/cancel"
+	"github.com/googlegenomics/pipelines-tools/pipelines/internal/commands/export"
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/commands/query"
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/commands/run"
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/commands/watch"
@@ -44,6 +45,7 @@ var (
 		"cancel": cancel.Invoke,
 		"query":  query.Invoke,
 		"watch":  watch.Invoke,
+		"export": export.Invoke,
 	}
 )
 
