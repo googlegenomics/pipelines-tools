@@ -34,6 +34,7 @@ var (
 	filter      = flags.String("filter", "", "the export filter")
 	datasetName = flags.String("dataset", "", "the dataset to export to which must already exist")
 	tableName   = flags.String("table", "", "the table to export to")
+	update      = flags.Bool("update", true, "only export operations newer than those already exported")
 )
 
 type row struct {
@@ -82,10 +83,6 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 	call := service.Projects.Operations.List(path).Context(ctx)
 	call.PageSize(256)
 
-	if *filter != "" {
-		call = call.Filter(*filter)
-	}
-
 	bq, err := bigquery.NewClient(ctx, project)
 	if err != nil {
 		return fmt.Errorf("creating BigQuery client: %v", err)
@@ -101,12 +98,27 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 		return fmt.Errorf("inferring schema: %v", err)
 	}
 
+	f := *filter
 	table := dataset.Table(*tableName)
 	if _, err := table.Metadata(ctx); err != nil {
 		if err := table.Create(ctx, &bigquery.TableMetadata{Schema: schema}); err != nil {
 			return fmt.Errorf("creating table: %v", err)
 		}
+	} else if *update {
+		timestamp, err := latestTimestamp(ctx, bq, project)
+		if err != nil {
+			return fmt.Errorf("retrieving latest timestamp: %v", err)
+		}
+		if timestamp != "" {
+			expr := fmt.Sprintf(`metadata.createTime > %q`, timestamp)
+			if f != "" {
+				f = fmt.Sprintf("(%s) AND %s", f, expr)
+			} else {
+				f = expr
+			}
+		}
 	}
+	call.Filter(f)
 
 	uploader := table.Uploader()
 
@@ -198,4 +210,32 @@ func parseTimestamp(ts string) bigquery.NullDateTime {
 		DateTime: civil.DateTimeOf(t),
 		Valid:    true,
 	}
+}
+
+func latestTimestamp(ctx context.Context, bq *bigquery.Client, project string) (string, error) {
+	q := bq.Query(fmt.Sprintf("SELECT MAX(CreateTime) FROM `%s.%s.%s`", project, *datasetName, *tableName))
+	job, err := q.Run(ctx)
+	if err != nil {
+		return "", fmt.Errorf("running query: %v", err)
+	}
+	status, err := job.Wait(ctx)
+	if err != nil {
+		return "", fmt.Errorf("waiting for query: %v", err)
+	}
+	if err := status.Err(); err != nil {
+		return "", fmt.Errorf("query status: %v", err)
+	}
+	it, err := job.Read(ctx)
+	if err != nil {
+		return "", fmt.Errorf("reading query: %v", err)
+	}
+
+	var v []bigquery.Value
+	if err := it.Next(&v); err != nil {
+		return "", fmt.Errorf("getting query data: %v", err)
+	}
+	if v[0] == nil {
+		return "", nil
+	}
+	return fmt.Sprintf("%s", v[0]), nil
 }
