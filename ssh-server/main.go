@@ -98,11 +98,11 @@ func handleConnection(conn net.Conn, serverConfig *ssh.ServerConfig) error {
 	go ssh.DiscardRequests(reqs)
 
 	for newChannel := range chans {
-		go func() {
-			if err := serviceChannel(newChannel); err != nil {
+		go func(channel ssh.NewChannel) {
+			if err := serviceChannel(channel); err != nil {
 				log.Printf("Failed to service channel: %v", err)
 			}
-		}()
+		}(newChannel)
 	}
 	return nil
 }
@@ -162,6 +162,7 @@ func newPTY(channel ssh.Channel, resize chan *pty.Winsize) {
 	shell, err := pty.Start(exec.Command("bash"))
 	if err != nil {
 		log.Printf("starting pty: %v", err)
+		return
 	}
 	defer shell.Close()
 
