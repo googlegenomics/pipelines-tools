@@ -189,9 +189,9 @@ func runPTY(channel ssh.Channel, term string, resize chan *pty.Winsize) {
 	go io.Copy(shell, channel)
 	io.Copy(channel, shell)
 
-	status := struct{ Status uint32 }{uint32(0)}
+	status := struct{ Status uint32 }{}
 	if _, err := channel.SendRequest("exit-status", false, ssh.Marshal(&status)); err != nil {
-		log.Printf("Failed to send exit request: %v", err)
+		log.Printf("Failed to send exit status: %v", err)
 	}
 }
 
