@@ -40,7 +40,7 @@ func main() {
 
 		go func() {
 			if err := handleConnection(connection, config); err != nil {
-				log.Printf("Handling connection: %v", err)
+				log.Printf("Failed to handle connection: %v", err)
 			}
 		}()
 	}
@@ -116,9 +116,11 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 	if err != nil {
 		return fmt.Errorf("accepting channel: %v", err)
 	}
+	defer channel.Close()
 
 	allow := map[string]bool{"shell": true, "exec": true, "pty-req": true, "window-change": true}
 	resize := make(chan *pty.Winsize, 1)
+	defer close(resize)
 	done := make(chan struct{})
 	for {
 		select {
@@ -133,22 +135,32 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 			}
 			switch req.Type {
 			case "pty-req":
-				go func() {
-					newPTY(channel, resize)
-					close(done)
-				}()
-
-				skip := binary.BigEndian.Uint32(req.Payload)
-				size, err := windowSize(req.Payload[4+skip:])
+				payload := req.Payload
+				length, payload, err := parseUint32(payload)
 				if err != nil {
-					log.Printf("Failed to get window size: %v", err)
-					continue
+					return fmt.Errorf("parsing TERM length: %v", err)
+				}
+
+				if len(payload) <= int(length) {
+					return errors.New("unexpected payload length")
+				}
+				term := string(payload[:length])
+				payload = payload[length:]
+
+				size, err := windowSize(payload)
+				if err != nil {
+					return fmt.Errorf("parsing window size: %v", err)
 				}
 				resize <- size
+
+				go func() {
+					runPTY(channel, term, resize)
+					close(done)
+				}()
 			case "window-change":
 				size, err := windowSize(req.Payload)
 				if err != nil {
-					log.Printf("Failed to get window size: %v", err)
+					log.Printf("Failed to parse window size: %v", err)
 					continue
 				}
 				resize <- size
@@ -157,11 +169,13 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 	}
 }
 
-func newPTY(channel ssh.Channel, resize chan *pty.Winsize) {
+func runPTY(channel ssh.Channel, term string, resize chan *pty.Winsize) {
 	//Start the command with a pseudo-terminal.
-	shell, err := pty.Start(exec.Command("bash"))
+	cmd := exec.Command("bash")
+	cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", term))
+	shell, err := pty.Start(cmd)
 	if err != nil {
-		log.Printf("starting pty: %v", err)
+		log.Printf("Failed to start pty: %v", err)
 		return
 	}
 	defer shell.Close()
@@ -179,16 +193,27 @@ func newPTY(channel ssh.Channel, resize chan *pty.Winsize) {
 	if _, err := channel.SendRequest("exit-status", false, ssh.Marshal(&status)); err != nil {
 		log.Printf("Failed to send exit request: %v", err)
 	}
-	channel.Close()
 }
 
 func windowSize(payload []byte) (*pty.Winsize, error) {
-	var size struct {
-		Width, Height uint32
+	width, payload, err := parseUint32(payload)
+	if err != nil {
+		return nil, fmt.Errorf("parsing window width: %v", err)
 	}
-	if err := binary.Read(bytes.NewReader(payload), binary.BigEndian, &size); err == nil {
-		return &pty.Winsize{Cols: uint16(size.Width), Rows: uint16(size.Height)}, nil
-	} else {
-		return nil, err
+	height, _, err := parseUint32(payload)
+	if err != nil {
+		return nil, fmt.Errorf("parsing window height: %v", err)
 	}
+	return &pty.Winsize{Cols: uint16(width), Rows: uint16(height)}, nil
+}
+
+func parseUint32(payload []byte) (uint32, []byte, error) {
+	if len(payload) < 4 {
+		return 0, nil, errors.New("unexpected payload length")
+	}
+	var param uint32
+	if err := binary.Read(bytes.NewReader(payload), binary.BigEndian, param); err != nil {
+		return 0, nil, err
+	}
+	return param, payload[4:], nil
 }
