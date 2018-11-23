@@ -135,19 +135,13 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 			}
 			switch req.Type {
 			case "pty-req":
-				payload := req.Payload
-				length, payload, err := parseUint32(payload)
+				r := bytes.NewReader(req.Payload)
+				term, err := parseString(r)
 				if err != nil {
-					return fmt.Errorf("parsing TERM length: %v", err)
+					return fmt.Errorf("parsing TERM environment variable value: %v", err)
 				}
 
-				if len(payload) <= int(length) {
-					return errors.New("unexpected payload length")
-				}
-				term := string(payload[:length])
-				payload = payload[length:]
-
-				size, err := windowSize(payload)
+				size, err := windowSize(r)
 				if err != nil {
 					return fmt.Errorf("parsing window size: %v", err)
 				}
@@ -158,7 +152,7 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 					close(done)
 				}()
 			case "window-change":
-				size, err := windowSize(req.Payload)
+				size, err := windowSize(bytes.NewReader(req.Payload))
 				if err != nil {
 					log.Printf("Failed to parse window size: %v", err)
 					continue
@@ -170,7 +164,7 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 }
 
 func runPTY(channel ssh.Channel, term string, resize chan *pty.Winsize) {
-	//Start the command with a pseudo-terminal.
+	// Start the command with a pseudo-terminal.
 	cmd := exec.Command("bash")
 	cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", term))
 	shell, err := pty.Start(cmd)
@@ -195,25 +189,35 @@ func runPTY(channel ssh.Channel, term string, resize chan *pty.Winsize) {
 	}
 }
 
-func windowSize(payload []byte) (*pty.Winsize, error) {
-	width, payload, err := parseUint32(payload)
+func windowSize(r io.Reader) (*pty.Winsize, error) {
+	width, err := parseUint32(r)
 	if err != nil {
 		return nil, fmt.Errorf("parsing window width: %v", err)
 	}
-	height, _, err := parseUint32(payload)
+	height, err := parseUint32(r)
 	if err != nil {
 		return nil, fmt.Errorf("parsing window height: %v", err)
 	}
 	return &pty.Winsize{Cols: uint16(width), Rows: uint16(height)}, nil
 }
 
-func parseUint32(payload []byte) (uint32, []byte, error) {
-	if len(payload) < 4 {
-		return 0, nil, errors.New("unexpected payload length")
-	}
+func parseUint32(r io.Reader) (uint32, error) {
 	var param uint32
-	if err := binary.Read(bytes.NewReader(payload), binary.BigEndian, param); err != nil {
-		return 0, nil, err
+	if err := binary.Read(r, binary.BigEndian, param); err != nil {
+		return 0, err
 	}
-	return param, payload[4:], nil
+	return param, nil
+}
+
+func parseString(r io.Reader) (string, error) {
+	length, err := parseUint32(r)
+	if err != nil {
+		return "", fmt.Errorf("parsing length: %v", err)
+	}
+
+	term := make([]byte, length)
+	if _, err := io.ReadFull(r, term); err != nil {
+		return "", fmt.Errorf("parsing the string: %v", err)
+	}
+	return string(term), nil
 }
