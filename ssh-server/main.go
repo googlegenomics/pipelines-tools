@@ -136,12 +136,12 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 			switch req.Type {
 			case "pty-req":
 				r := bytes.NewReader(req.Payload)
-				term, err := parseString(r)
+				term, err := readString(r)
 				if err != nil {
 					return fmt.Errorf("parsing TERM environment variable value: %v", err)
 				}
 
-				size, err := windowSize(r)
+				size, err := readWindowSize(r)
 				if err != nil {
 					return fmt.Errorf("parsing window size: %v", err)
 				}
@@ -152,7 +152,7 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 					close(done)
 				}()
 			case "window-change":
-				size, err := windowSize(bytes.NewReader(req.Payload))
+				size, err := readWindowSize(bytes.NewReader(req.Payload))
 				if err != nil {
 					log.Printf("Failed to parse window size: %v", err)
 					continue
@@ -189,19 +189,19 @@ func runPTY(channel ssh.Channel, term string, resize chan *pty.Winsize) {
 	}
 }
 
-func windowSize(r io.Reader) (*pty.Winsize, error) {
-	width, err := parseUint32(r)
+func readWindowSize(r io.Reader) (*pty.Winsize, error) {
+	width, err := readUint32(r)
 	if err != nil {
-		return nil, fmt.Errorf("parsing window width: %v", err)
+		return nil, fmt.Errorf("raeding window width: %v", err)
 	}
-	height, err := parseUint32(r)
+	height, err := readUint32(r)
 	if err != nil {
-		return nil, fmt.Errorf("parsing window height: %v", err)
+		return nil, fmt.Errorf("reading window height: %v", err)
 	}
 	return &pty.Winsize{Cols: uint16(width), Rows: uint16(height)}, nil
 }
 
-func parseUint32(r io.Reader) (uint32, error) {
+func readUint32(r io.Reader) (uint32, error) {
 	var param uint32
 	if err := binary.Read(r, binary.BigEndian, param); err != nil {
 		return 0, err
@@ -209,15 +209,15 @@ func parseUint32(r io.Reader) (uint32, error) {
 	return param, nil
 }
 
-func parseString(r io.Reader) (string, error) {
-	length, err := parseUint32(r)
+func readString(r io.Reader) (string, error) {
+	length, err := readUint32(r)
 	if err != nil {
-		return "", fmt.Errorf("parsing length: %v", err)
+		return "", fmt.Errorf("reading length: %v", err)
 	}
 
 	term := make([]byte, length)
 	if _, err := io.ReadFull(r, term); err != nil {
-		return "", fmt.Errorf("parsing the string: %v", err)
+		return "", fmt.Errorf("reading string: %v", err)
 	}
 	return string(term), nil
 }
