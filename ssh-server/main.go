@@ -215,9 +215,9 @@ func readString(r io.Reader) (string, error) {
 		return "", fmt.Errorf("reading length: %v", err)
 	}
 
-	term := make([]byte, length)
-	if _, err := io.ReadFull(r, term); err != nil {
+	str := make([]byte, length)
+	if _, err := io.ReadFull(r, str); err != nil {
 		return "", fmt.Errorf("reading string: %v", err)
 	}
-	return string(term), nil
+	return string(str), nil
 }
