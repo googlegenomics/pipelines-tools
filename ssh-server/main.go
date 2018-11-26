@@ -118,7 +118,7 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 	}
 	defer channel.Close()
 
-	allow := map[string]bool{"shell": true, "exec": true, "pty-req": true, "window-change": true}
+	allow := map[string]bool{"shell": true, "pty-req": true, "window-change": true}
 	resize := make(chan *pty.Winsize, 1)
 	defer close(resize)
 	done := make(chan struct{})
@@ -148,7 +148,9 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 				resize <- size
 
 				go func() {
-					runPTY(channel, term, resize)
+					if err := runPTY(channel, term, resize); err != nil {
+						fmt.Printf("Failed to run pty: %v", err)
+					}
 					close(done)
 				}()
 			case "window-change":
@@ -163,14 +165,13 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 	}
 }
 
-func runPTY(channel ssh.Channel, term string, resize chan *pty.Winsize) {
+func runPTY(channel ssh.Channel, term string, resize chan *pty.Winsize) error {
 	// Start the command with a pseudo-terminal.
 	cmd := exec.Command("bash")
 	cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", term))
 	shell, err := pty.Start(cmd)
 	if err != nil {
-		log.Printf("Failed to start pty: %v", err)
-		return
+		return fmt.Errorf("Failed to start pty: %v", err)
 	}
 	defer shell.Close()
 
@@ -185,33 +186,25 @@ func runPTY(channel ssh.Channel, term string, resize chan *pty.Winsize) {
 
 	status := struct{ Status uint32 }{}
 	if _, err := channel.SendRequest("exit-status", false, ssh.Marshal(&status)); err != nil {
-		log.Printf("Failed to send exit status: %v", err)
+		return fmt.Errorf("Failed to send exit status: %v", err)
 	}
+	return nil
 }
 
 func readWindowSize(r io.Reader) (*pty.Winsize, error) {
-	width, err := readUint32(r)
+	var size struct {
+		Width, Height uint32
+	}
+	err := binary.Read(r, binary.BigEndian, &size)
 	if err != nil {
-		return nil, fmt.Errorf("raeding window width: %v", err)
+		return nil, fmt.Errorf("reading window size: %v", err)
 	}
-	height, err := readUint32(r)
-	if err != nil {
-		return nil, fmt.Errorf("reading window height: %v", err)
-	}
-	return &pty.Winsize{Cols: uint16(width), Rows: uint16(height)}, nil
-}
-
-func readUint32(r io.Reader) (uint32, error) {
-	var param uint32
-	if err := binary.Read(r, binary.BigEndian, param); err != nil {
-		return 0, err
-	}
-	return param, nil
+	return &pty.Winsize{Cols: uint16(size.Width), Rows: uint16(size.Height)}, nil
 }
 
 func readString(r io.Reader) (string, error) {
-	length, err := readUint32(r)
-	if err != nil {
+	var length uint32
+	if err := binary.Read(r, binary.BigEndian, length); err != nil {
 		return "", fmt.Errorf("reading length: %v", err)
 	}
 
