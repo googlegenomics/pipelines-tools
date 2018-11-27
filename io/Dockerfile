@@ -14,7 +14,7 @@
 
 FROM google/cloud-sdk:slim
 
-RUN apk --no-cache add go musl-dev
+RUN apt-get install -y golang
 
 COPY retry/retry.go .
 RUN go build -o /usr/local/bin/retry retry.go
