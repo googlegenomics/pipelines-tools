@@ -154,7 +154,6 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 			case "window-change":
 				if err := readWindowSize(bytes.NewReader(req.Payload), resize); err != nil {
 					return fmt.Errorf("reading window size: %v", err)
-					continue
 				}
 			}
 		}
@@ -187,7 +186,7 @@ func runPTY(channel ssh.Channel, term string, resize chan *pty.Winsize) error {
 	return nil
 }
 
-func readWindowSize(r io.Reader, resize chan *pty.Winsize) error {
+func readWindowSize(r io.Reader, output chan *pty.Winsize) error {
 	var size struct {
 		Width, Height uint32
 	}
@@ -195,7 +194,7 @@ func readWindowSize(r io.Reader, resize chan *pty.Winsize) error {
 		return err
 	}
 
-	resize <- &pty.Winsize{Cols: uint16(size.Width), Rows: uint16(size.Height)}
+	output <- &pty.Winsize{Cols: uint16(size.Width), Rows: uint16(size.Height)}
 	return nil
 }
 
