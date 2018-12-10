@@ -144,17 +144,21 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 					return fmt.Errorf("parsing TERM environment variable value: %v", err)
 				}
 
-				if err := readWindowSize(r, resize); err != nil {
+				size, err := readWindowSize(r)
+				if err != nil {
 					return fmt.Errorf("reading window size: %v", err)
 				}
+				resize <- size
 
 				go func() {
 					done <- runPTY(channel, term, resize)
 				}()
 			case "window-change":
-				if err := readWindowSize(bytes.NewReader(req.Payload), resize); err != nil {
+				size, err := readWindowSize(bytes.NewReader(req.Payload))
+				if err != nil {
 					return fmt.Errorf("reading window size: %v", err)
 				}
+				resize <- size
 			}
 		}
 	}
@@ -186,21 +190,20 @@ func runPTY(channel ssh.Channel, term string, resize chan *pty.Winsize) error {
 	return nil
 }
 
-func readWindowSize(r io.Reader, output chan *pty.Winsize) error {
+func readWindowSize(r io.Reader) (*pty.Winsize, error) {
 	var size struct {
 		Width, Height uint32
 	}
 	if err := binary.Read(r, binary.BigEndian, &size); err != nil {
-		return err
+		return nil, err
 	}
 
-	output <- &pty.Winsize{Cols: uint16(size.Width), Rows: uint16(size.Height)}
-	return nil
+	return &pty.Winsize{Cols: uint16(size.Width), Rows: uint16(size.Height)}, nil
 }
 
 func readString(r io.Reader) (string, error) {
 	var length uint32
-	if err := binary.Read(r, binary.BigEndian, length); err != nil {
+	if err := binary.Read(r, binary.BigEndian, &length); err != nil {
 		return "", fmt.Errorf("reading length: %v", err)
 	}
 
