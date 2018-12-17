@@ -12,6 +12,8 @@ import (
 	"log"
 	"net"
 	"os/exec"
+	"regexp"
+	"strconv"
 
 	"github.com/googlegenomics/pipelines-tools/gce"
 	"github.com/kr/pty"
@@ -19,7 +21,8 @@ import (
 )
 
 var (
-	port = flag.Uint("port", 22, "the port to listen on")
+	port            = flag.Uint("port", 22, "the port to listen on")
+	exitStatusRegex = regexp.MustCompile("^exit status ([1-9]*)$")
 )
 
 func main() {
@@ -118,16 +121,29 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 	}
 	defer channel.Close()
 
-	allow := map[string]bool{"shell": true, "pty-req": true, "window-change": true}
+	allow := map[string]bool{"shell": true, "exec": true, "pty-req": true, "window-change": true}
 	resize := make(chan *pty.Winsize, 1)
 	defer close(resize)
 	done := make(chan error)
 	for {
 		select {
 		case err := <-done:
+			var status uint32
 			if err != nil {
-				return fmt.Errorf("running pty: %v", err)
+				if parts := exitStatusRegex.FindStringSubmatch(err.Error()); parts != nil {
+					st, err := strconv.ParseUint(parts[1], 10, 32)
+					if err != nil {
+						return fmt.Errorf("parsing status code: %v", err)
+					}
+					status = uint32(st)
+				} else {
+					return err
+				}
 			}
+			if _, err := channel.SendRequest("exit-status", false, ssh.Marshal(&struct{ Status uint32 }{status})); err != nil {
+				return fmt.Errorf("sending exit status: %v", err)
+			}
+
 			return nil
 		case req, ok := <-requests:
 			if !ok {
@@ -137,6 +153,15 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 				req.Reply(allow[req.Type], nil)
 			}
 			switch req.Type {
+			case "exec":
+				command, err := readString(bytes.NewReader(req.Payload))
+				if err != nil {
+					return fmt.Errorf("reading command: %v", err)
+				}
+
+				go func() {
+					done <- exec.Command("bash", "-c", command).Run()
+				}()
 			case "pty-req":
 				r := bytes.NewReader(req.Payload)
 				term, err := readString(r)
@@ -183,10 +208,6 @@ func runPTY(channel ssh.Channel, term string, resize chan *pty.Winsize) error {
 	go io.Copy(shell, channel)
 	io.Copy(channel, shell)
 
-	status := struct{ Status uint32 }{}
-	if _, err := channel.SendRequest("exit-status", false, ssh.Marshal(&status)); err != nil {
-		return fmt.Errorf("sending exit status: %v", err)
-	}
 	return nil
 }
 
