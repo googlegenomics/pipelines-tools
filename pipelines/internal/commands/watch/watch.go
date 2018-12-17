@@ -30,6 +30,7 @@ import (
 var (
 	flags = flag.NewFlagSet("", flag.ExitOnError)
 
+	actions = flags.Bool("actions", false, "show action details")
 	details = flags.Bool("details", false, "show event details")
 )
 
@@ -66,6 +67,15 @@ func watch(ctx context.Context, service *genomics.Service, name string) (interfa
 		var metadata genomics.Metadata
 		if err := json.Unmarshal(lro.Metadata, &metadata); err != nil {
 			return nil, fmt.Errorf("parsing metadata: %v", err)
+		}
+
+		if *actions {
+			*actions = false
+			encoded, err := json.MarshalIndent(metadata.Pipeline.Actions, "", "  ")
+			if err != nil {
+				return nil, fmt.Errorf("encoding actions: %v", err)
+			}
+			fmt.Printf("%s\n", encoded)
 		}
 
 		if len(events) != len(metadata.Events) {
