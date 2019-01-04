@@ -12,8 +12,7 @@ import (
 	"log"
 	"net"
 	"os/exec"
-	"regexp"
-	"strconv"
+	"syscall"
 
 	"github.com/googlegenomics/pipelines-tools/gce"
 	"github.com/kr/pty"
@@ -21,8 +20,7 @@ import (
 )
 
 var (
-	port            = flag.Uint("port", 22, "the port to listen on")
-	exitStatusRegex = regexp.MustCompile("^exit status ([1-9]*)$")
+	port = flag.Uint("port", 22, "the port to listen on")
 )
 
 func main() {
@@ -130,12 +128,8 @@ func serviceChannel(newChannel ssh.NewChannel) error {
 		case err := <-done:
 			var status uint32
 			if err != nil {
-				if parts := exitStatusRegex.FindStringSubmatch(err.Error()); parts != nil {
-					st, err := strconv.ParseUint(parts[1], 10, 32)
-					if err != nil {
-						return fmt.Errorf("parsing status code: %v", err)
-					}
-					status = uint32(st)
+				if err, ok := err.(*exec.ExitError); ok {
+					status = uint32(err.Sys().(syscall.WaitStatus).ExitStatus())
 				} else {
 					return err
 				}
