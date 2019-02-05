@@ -385,7 +385,7 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 			Type:  *gpuType,
 			Count: int64(*gpus),
 		})
-		vm.NvidiaDriverVersion = "390.46"
+		vm.NvidiaDriverVersion = "410.79"
 	}
 
 	pipeline := &genomics.Pipeline{
