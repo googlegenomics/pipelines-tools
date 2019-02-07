@@ -20,11 +20,9 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
-	"path"
-	"strings"
+	"path/filepath"
 	"syscall"
 )
 
@@ -35,32 +33,35 @@ func main() {
 	}
 
 	tool := os.Args[1]
+	arguments := os.Args[2:]
 
-	for attempts := 3; attempts > 0; attempts-- {
-		command := exec.Command(tool, os.Args[2:]...)
+	for retries := 0; ; retries++ {
+		command := exec.Command(tool, arguments...)
 		command.Stderr = os.Stderr
 		command.Stdout = os.Stdout
 
-		if err := command.Run(); err != nil {
-			if !isRetriable(tool, err) {
-				if err, ok := err.(*exec.ExitError); ok {
-					os.Exit(err.Sys().(syscall.WaitStatus).ExitStatus())
-				}
-				fmt.Fprintf(os.Stderr, "Failed to run command: %v\n", err)
-				os.Exit(1)
+		switch err := command.Run().(type) {
+		case *exec.ExitError:
+			status := err.Sys().(syscall.WaitStatus).ExitStatus()
+			if retries >= 2 {
+				os.Exit(status)
 			}
-			log.Printf("%q exited with a retriable error: %v", tool, err)
-			continue
+
+			if filepath.Base(tool) == "gsutil" {
+				// The gsutil bootstrapping code writes a sticky bit to disk that
+				// disables GCE metadata authentication if it has any trouble talking
+				// to the metadata endpoint.
+				os.Remove(filepath.Join(os.Getenv("HOME"), ".config/gcloud/gce"))
+			}
+
+			fmt.Fprintf(os.Stderr, "Execution failed (exit status %d); will retry\n", status)
+
+		case nil:
+			return
+
+		default:
+			fmt.Fprintln(os.Stderr, "Failed to run command:", err)
+			os.Exit(1)
 		}
-
-		break
 	}
-}
-
-func isRetriable(tool string, err error) bool {
-	if path.Base(tool) == "gsutil" {
-		// Requests to the local metadata service can fail transiently.
-		return strings.Contains(err.Error(), `Your "GCE" credentials are invalid`)
-	}
-	return false
 }
