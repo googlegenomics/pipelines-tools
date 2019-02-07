@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"syscall"
+	"time"
 )
 
 func main() {
@@ -36,6 +37,8 @@ func main() {
 	arguments := os.Args[2:]
 
 	for retries := 0; ; retries++ {
+		time.Sleep(time.Duration(retries*retries) * time.Second)
+
 		command := exec.Command(tool, arguments...)
 		command.Stderr = os.Stderr
 		command.Stdout = os.Stdout
