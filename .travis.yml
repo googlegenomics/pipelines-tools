@@ -1,3 +1,12 @@
 language: go
 go:
   - "1.10.x"
+
+services:
+  - docker
+
+script:
+  - go test ./...
+  - docker build .
+  - docker build io/
+  - docker build gcsfuse/
