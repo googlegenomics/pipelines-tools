@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM golang:1.10
+FROM golang:1.11
 
 WORKDIR /go/src/github.com/googlegenomics/pipelines-tools
 COPY . .
