@@ -108,8 +108,11 @@ package run
 //
 import (
 	"bufio"
+	"cloud.google.com/go/pubsub"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -217,6 +220,12 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 	for {
 		req.Pipeline.Resources.VirtualMachine.Preemptible = (attempt <= *pvmAttempts)
 
+		topicName, err := newPubSubTopic(req.Pipeline.Resources.ProjectId)
+		if err != nil {
+			return fmt.Errorf("creating Pub/Sub topic: %v", err)
+		}
+		req.PubSubTopic = topicName
+
 		lro, err := service.Pipelines.Run(req).Context(ctx).Do()
 		if err != nil {
 			if err, ok := err.(*googleapi.Error); ok && err.Message != "" {
@@ -248,6 +257,25 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 		}
 		return nil
 	}
+}
+
+func newPubSubTopic(projectID string) (string, error) {
+	ctx := context.Background()
+	client, err := pubsub.NewClient(ctx, projectID)
+	if err != nil {
+		return "", fmt.Errorf("creating Pub/Sub client: %v", err)
+	}
+
+	var r uint64
+	if err := binary.Read(rand.Reader, binary.LittleEndian, &r); err != nil {
+		return "", fmt.Errorf("generating id: %v", err)
+	}
+	topicName := string(r)
+
+	if _, err := client.CreateTopic(ctx, topicName); err != nil {
+		return "", fmt.Errorf("creating topic: %v", err)
+	}
+	return topicName, nil
 }
 
 func parseJSON(filename string, v interface{}) error {
