@@ -128,7 +128,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/pubsub"
-
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/commands/watch"
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/common"
 	"golang.org/x/oauth2/google"
@@ -247,7 +246,7 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 			return nil
 		}
 
-		if err := watch.Invoke(ctx, service, req.Pipeline.Resources.ProjectId, []string{lro.Name, fmt.Sprintf("-topic=%s", topic.ID())}); err != nil {
+		if err := watch.Invoke(ctx, service, req.Pipeline.Resources.ProjectId, []string{lro.Name, "-topic", topic.ID()}); err != nil {
 			if err, ok := err.(common.PipelineExecutionError); ok && err.IsRetriable() {
 				if attempt < *pvmAttempts+*attempts {
 					attempt++
