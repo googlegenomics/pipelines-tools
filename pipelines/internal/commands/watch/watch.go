@@ -17,11 +17,15 @@ package watch
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"time"
+
+	"cloud.google.com/go/pubsub"
 
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/common"
 	genomics "google.golang.org/api/genomics/v2alpha1"
@@ -32,16 +36,21 @@ var (
 
 	actions = flags.Bool("actions", false, "show action details")
 	details = flags.Bool("details", false, "show event details")
+	topic   = flags.String("topic", "", "Pub/Sub topic")
 )
 
 func Invoke(ctx context.Context, service *genomics.Service, project string, arguments []string) error {
 	names := common.ParseFlags(flags, arguments)
-	if len(names) < 1 {
+	l := len(names)
+	if l < 1 {
 		return errors.New("missing operation name")
+	}
+	if *topic == "" {
+		return errors.New("missing Pub/Sub topic name")
 	}
 
 	name := common.ExpandOperationName(project, names[0])
-	result, err := watch(ctx, service, name)
+	result, err := watch(ctx, service, project, name, *topic)
 	if err != nil {
 		return fmt.Errorf("watching pipeline: %v", err)
 	}
@@ -54,26 +63,33 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 	return nil
 }
 
-func watch(ctx context.Context, service *genomics.Service, name string) (interface{}, error) {
+func watch(ctx context.Context, service *genomics.Service, project, name, topic string) (interface{}, error) {
 	var events []*genomics.Event
-	const initialDelay = 5 * time.Second
-	delay := initialDelay
-	for {
+
+	sub, err := newPubSubSubscription(project, topic)
+	if err != nil {
+		return nil, fmt.Errorf("creating Pub/Sub subscription: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var response interface{}
+	err = sub.Receive(ctx, func(ctx context.Context, m *pubsub.Message) {
 		lro, err := service.Projects.Operations.Get(name).Context(ctx).Do()
 		if err != nil {
-			return nil, fmt.Errorf("getting operation status: %v", err)
+			fmt.Println(fmt.Errorf("getting operation status: %v", err))
 		}
 
 		var metadata genomics.Metadata
 		if err := json.Unmarshal(lro.Metadata, &metadata); err != nil {
-			return nil, fmt.Errorf("parsing metadata: %v", err)
+			fmt.Println(fmt.Errorf("parsing metadata: %v", err))
 		}
 
 		if *actions {
 			*actions = false
 			encoded, err := json.MarshalIndent(metadata.Pipeline.Actions, "", "  ")
 			if err != nil {
-				return nil, fmt.Errorf("encoding actions: %v", err)
+				fmt.Println(fmt.Errorf("encoding actions: %v", err))
 			}
 			fmt.Printf("%s\n", encoded)
 		}
@@ -88,20 +104,44 @@ func watch(ctx context.Context, service *genomics.Service, name string) (interfa
 				}
 			}
 			events = metadata.Events
-			delay = initialDelay
 		}
 
 		if lro.Done {
 			if lro.Error != nil {
-				return lro.Error, nil
+				response = lro.Error
+			} else {
+				response = lro.Response
 			}
-			return lro.Response, nil
+			cancel()
 		}
-
-		time.Sleep(delay)
-		delay = time.Duration(float64(delay) * 1.5)
-		if limit := time.Minute; delay > limit {
-			delay = limit
-		}
+		m.Ack()
+	})
+	if err != nil && err != context.Canceled {
+		return nil, fmt.Errorf("receiving message: %v", err)
 	}
+	return response, nil
+}
+
+func newPubSubSubscription(projectID, topicName string) (*pubsub.Subscription, error) {
+	ctx := context.Background()
+	client, err := pubsub.NewClient(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("creating a Pub/Sub client: %v", err)
+	}
+
+	var r uint64
+	if err := binary.Read(rand.Reader, binary.LittleEndian, &r); err != nil {
+		return nil, fmt.Errorf("generating id: %v", err)
+	}
+	subscriptionName := fmt.Sprintf("s%d", r)
+	sub, err := client.CreateSubscription(ctx, string(subscriptionName), pubsub.SubscriptionConfig{
+		Topic:       client.Topic(topicName),
+		AckDeadline: 10 * time.Second,
+		//s	ExpirationPolicy: 25 * time.Hour,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating subscription: %v", err)
+	}
+
+	return sub, nil
 }

@@ -109,7 +109,9 @@ package run
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -124,6 +126,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"cloud.google.com/go/pubsub"
 
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/commands/watch"
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/common"
@@ -217,6 +221,13 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 	for {
 		req.Pipeline.Resources.VirtualMachine.Preemptible = (attempt <= *pvmAttempts)
 
+		topic, err := newPubSubTopic(req.Pipeline.Resources.ProjectId)
+		if err != nil {
+			return fmt.Errorf("creating Pub/Sub topic: %v", err)
+		}
+		req.PubSubTopic = topic.ID()
+		defer topic.Delete(ctx)
+
 		lro, err := service.Pipelines.Run(req).Context(ctx).Do()
 		if err != nil {
 			if err, ok := err.(*googleapi.Error); ok && err.Message != "" {
@@ -236,7 +247,7 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 			return nil
 		}
 
-		if err := watch.Invoke(ctx, service, req.Pipeline.Resources.ProjectId, []string{lro.Name}); err != nil {
+		if err := watch.Invoke(ctx, service, req.Pipeline.Resources.ProjectId, []string{lro.Name, fmt.Sprintf("-topic=%s", topic.ID())}); err != nil {
 			if err, ok := err.(common.PipelineExecutionError); ok && err.IsRetriable() {
 				if attempt < *pvmAttempts+*attempts {
 					attempt++
@@ -248,6 +259,27 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 		}
 		return nil
 	}
+}
+
+func newPubSubTopic(projectID string) (*pubsub.Topic, error) {
+	ctx := context.Background()
+	client, err := pubsub.NewClient(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("creating Pub/Sub client: %v", err)
+	}
+
+	var r uint64
+	if err := binary.Read(rand.Reader, binary.LittleEndian, &r); err != nil {
+		return nil, fmt.Errorf("generating id: %v", err)
+	}
+	topicName := fmt.Sprintf("tt%d", r)
+
+	topic, err := client.CreateTopic(ctx, topicName)
+	if err != nil {
+		return nil, fmt.Errorf("creating topic: %v", err)
+	}
+
+	return topic, nil
 }
 
 func parseJSON(filename string, v interface{}) error {
