@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/pubsub"
-
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/common"
 	genomics "google.golang.org/api/genomics/v2alpha1"
 )
@@ -42,8 +41,7 @@ var (
 
 func Invoke(ctx context.Context, service *genomics.Service, project string, arguments []string) error {
 	names := common.ParseFlags(flags, arguments)
-	l := len(names)
-	if l < 1 {
+	if len(names) < 1 {
 		return errors.New("missing operation name")
 	}
 	if *topic == "" {
@@ -76,26 +74,38 @@ func watch(ctx context.Context, service *genomics.Service, project, name, topic 
 
 	var events []*genomics.Event
 	var response interface{}
+	var receiverErr error
 	var receiverLock sync.Mutex
 	err = sub.Receive(ctx, func(ctx context.Context, m *pubsub.Message) {
 		receiverLock.Lock()
 		defer receiverLock.Unlock()
 
+		exit := func(err error) {
+			if receiverErr != nil {
+				return
+			}
+			receiverErr = err
+			cancel()
+		}
+
 		lro, err := service.Projects.Operations.Get(name).Context(ctx).Do()
 		if err != nil {
-			fmt.Println(fmt.Errorf("getting operation status: %v", err))
+			exit(fmt.Errorf("getting operation status: %v", err))
+			return
 		}
 
 		var metadata genomics.Metadata
 		if err := json.Unmarshal(lro.Metadata, &metadata); err != nil {
-			fmt.Println(fmt.Errorf("parsing metadata: %v", err))
+			exit(fmt.Errorf("parsing metadata: %v", err))
+			return
 		}
 
 		if *actions {
 			*actions = false
 			encoded, err := json.MarshalIndent(metadata.Pipeline.Actions, "", "  ")
 			if err != nil {
-				fmt.Println(fmt.Errorf("encoding actions: %v", err))
+				exit(fmt.Errorf("encoding actions: %v", err))
+				return
 			}
 			fmt.Printf("%s\n", encoded)
 		}
@@ -125,7 +135,7 @@ func watch(ctx context.Context, service *genomics.Service, project, name, topic 
 	if err != nil && err != context.Canceled {
 		return nil, fmt.Errorf("receiving message: %v", err)
 	}
-	return response, nil
+	return response, receiverErr
 }
 
 func newPubSubSubscription(ctx context.Context, projectID, topicName string) (*pubsub.Subscription, error) {

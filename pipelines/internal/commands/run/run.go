@@ -220,8 +220,8 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 	if err != nil {
 		return fmt.Errorf("creating Pub/Sub topic: %v", err)
 	}
-	req.PubSubTopic = topic.ID()
 	defer topic.Delete(ctx)
+	req.PubSubTopic = topic.ID()
 
 	attempt := uint(1)
 	for {
