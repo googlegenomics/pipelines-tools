@@ -79,6 +79,7 @@ func watch(ctx context.Context, service *genomics.Service, project, name, topic 
 	err = sub.Receive(ctx, func(ctx context.Context, m *pubsub.Message) {
 		receiverLock.Lock()
 		defer receiverLock.Unlock()
+		m.Ack()
 
 		exit := func(err error) {
 			if receiverErr != nil {
@@ -130,7 +131,6 @@ func watch(ctx context.Context, service *genomics.Service, project, name, topic 
 			}
 			cancel()
 		}
-		m.Ack()
 	})
 	if err != nil && err != context.Canceled {
 		return nil, fmt.Errorf("receiving message: %v", err)
