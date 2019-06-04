@@ -81,23 +81,24 @@ func watch(ctx context.Context, service *genomics.Service, project, name, topic 
 		defer receiverLock.Unlock()
 		m.Ack()
 
-		exit := func(err error) {
-			if receiverErr != nil {
+		exit := func(r interface{}, err error) {
+			if ctx.Err() != nil {
 				return
 			}
+			response = r
 			receiverErr = err
 			cancel()
 		}
 
 		lro, err := service.Projects.Operations.Get(name).Context(ctx).Do()
 		if err != nil {
-			exit(fmt.Errorf("getting operation status: %v", err))
+			exit(nil, fmt.Errorf("getting operation status: %v", err))
 			return
 		}
 
 		var metadata genomics.Metadata
 		if err := json.Unmarshal(lro.Metadata, &metadata); err != nil {
-			exit(fmt.Errorf("parsing metadata: %v", err))
+			exit(nil, fmt.Errorf("parsing metadata: %v", err))
 			return
 		}
 
@@ -105,7 +106,7 @@ func watch(ctx context.Context, service *genomics.Service, project, name, topic 
 			*actions = false
 			encoded, err := json.MarshalIndent(metadata.Pipeline.Actions, "", "  ")
 			if err != nil {
-				exit(fmt.Errorf("encoding actions: %v", err))
+				exit(nil, fmt.Errorf("encoding actions: %v", err))
 				return
 			}
 			fmt.Printf("%s\n", encoded)
@@ -125,11 +126,10 @@ func watch(ctx context.Context, service *genomics.Service, project, name, topic 
 
 		if lro.Done {
 			if lro.Error != nil {
-				response = lro.Error
-			} else {
-				response = lro.Response
+				exit(lro.Error, nil)
+				return
 			}
-			cancel()
+			exit(lro.Response, nil)
 		}
 	})
 	if err != nil && err != context.Canceled {
