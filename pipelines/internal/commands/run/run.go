@@ -216,16 +216,16 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 	abort := make(chan os.Signal, 1)
 	signal.Notify(abort, os.Interrupt)
 
+	topic, err := newPubSubTopic(ctx, req.Pipeline.Resources.ProjectId)
+	if err != nil {
+		return fmt.Errorf("creating Pub/Sub topic: %v", err)
+	}
+	req.PubSubTopic = topic.ID()
+	defer topic.Delete(ctx)
+
 	attempt := uint(1)
 	for {
 		req.Pipeline.Resources.VirtualMachine.Preemptible = (attempt <= *pvmAttempts)
-
-		topic, err := newPubSubTopic(req.Pipeline.Resources.ProjectId)
-		if err != nil {
-			return fmt.Errorf("creating Pub/Sub topic: %v", err)
-		}
-		req.PubSubTopic = topic.ID()
-		defer topic.Delete(ctx)
 
 		lro, err := service.Pipelines.Run(req).Context(ctx).Do()
 		if err != nil {
@@ -260,24 +260,21 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 	}
 }
 
-func newPubSubTopic(projectID string) (*pubsub.Topic, error) {
-	ctx := context.Background()
+func newPubSubTopic(ctx context.Context, projectID string) (*pubsub.Topic, error) {
 	client, err := pubsub.NewClient(ctx, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("creating Pub/Sub client: %v", err)
 	}
 
-	var r uint64
-	if err := binary.Read(rand.Reader, binary.LittleEndian, &r); err != nil {
-		return nil, fmt.Errorf("generating id: %v", err)
+	var id uint64
+	if err := binary.Read(rand.Reader, binary.LittleEndian, &id); err != nil {
+		return nil, fmt.Errorf("generating topic name: %v", err)
 	}
-	topicName := fmt.Sprintf("tt%d", r)
 
-	topic, err := client.CreateTopic(ctx, topicName)
+	topic, err := client.CreateTopic(ctx, fmt.Sprintf("t%d", id))
 	if err != nil {
 		return nil, fmt.Errorf("creating topic: %v", err)
 	}
-
 	return topic, nil
 }
 

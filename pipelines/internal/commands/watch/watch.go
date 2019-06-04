@@ -23,6 +23,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"sync"
 	"time"
 
 	"cloud.google.com/go/pubsub"
@@ -64,17 +65,22 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 }
 
 func watch(ctx context.Context, service *genomics.Service, project, name, topic string) (interface{}, error) {
-	var events []*genomics.Event
-
-	sub, err := newPubSubSubscription(project, topic)
+	sub, err := newPubSubSubscription(ctx, project, topic)
 	if err != nil {
 		return nil, fmt.Errorf("creating Pub/Sub subscription: %v", err)
 	}
+	defer sub.Delete(ctx)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	var events []*genomics.Event
 	var response interface{}
+	var receiverLock sync.Mutex
 	err = sub.Receive(ctx, func(ctx context.Context, m *pubsub.Message) {
+		receiverLock.Lock()
+		defer receiverLock.Unlock()
+
 		lro, err := service.Projects.Operations.Get(name).Context(ctx).Do()
 		if err != nil {
 			fmt.Println(fmt.Errorf("getting operation status: %v", err))
@@ -122,26 +128,24 @@ func watch(ctx context.Context, service *genomics.Service, project, name, topic 
 	return response, nil
 }
 
-func newPubSubSubscription(projectID, topicName string) (*pubsub.Subscription, error) {
-	ctx := context.Background()
+func newPubSubSubscription(ctx context.Context, projectID, topicName string) (*pubsub.Subscription, error) {
 	client, err := pubsub.NewClient(ctx, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("creating a Pub/Sub client: %v", err)
 	}
 
-	var r uint64
-	if err := binary.Read(rand.Reader, binary.LittleEndian, &r); err != nil {
-		return nil, fmt.Errorf("generating id: %v", err)
+	var id uint64
+	if err := binary.Read(rand.Reader, binary.LittleEndian, &id); err != nil {
+		return nil, fmt.Errorf("generating subscription name: %v", err)
 	}
-	subscriptionName := fmt.Sprintf("s%d", r)
-	sub, err := client.CreateSubscription(ctx, string(subscriptionName), pubsub.SubscriptionConfig{
-		Topic:       client.Topic(topicName),
-		AckDeadline: 10 * time.Second,
-		//s	ExpirationPolicy: 25 * time.Hour,
+
+	sub, err := client.CreateSubscription(ctx, fmt.Sprintf("s%d", id), pubsub.SubscriptionConfig{
+		Topic:            client.Topic(topicName),
+		AckDeadline:      10 * time.Second,
+		ExpirationPolicy: 25 * time.Hour,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating subscription: %v", err)
 	}
-
 	return sub, nil
 }
