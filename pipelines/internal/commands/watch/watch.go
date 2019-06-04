@@ -36,7 +36,7 @@ var (
 
 	actions = flags.Bool("actions", false, "show action details")
 	details = flags.Bool("details", false, "show event details")
-	topic   = flags.String("topic", "", "Pub/Sub topic")
+	topic   = flags.String("topic", "", "the Pub/Sub topic to watch")
 )
 
 func Invoke(ctx context.Context, service *genomics.Service, project string, arguments []string) error {
@@ -45,7 +45,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 		return errors.New("missing operation name")
 	}
 	if *topic == "" {
-		return errors.New("missing Pub/Sub topic name")
+		return errors.New("missing Pub/Sub topic")
 	}
 
 	name := common.ExpandOperationName(project, names[0])
