@@ -335,13 +335,11 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 	}
 
 	if filename != "" {
-		if err := parseJSON(filename, &actions); err != nil {
-			v, err := parseScript(filename)
-			if err != nil {
-				return nil, fmt.Errorf("creating pipeline from script: %v", err)
-			}
-			actions = append(actions, v...)
+		v, err := parseFile(filename)
+		if err != nil {
+			return nil, fmt.Errorf("creating pipeline from file: %v", err)
 		}
+		actions = append(actions, v...)
 	} else if *command != "" {
 		action, err := parse(*command)
 		if err != nil {
@@ -427,11 +425,16 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 	return &genomics.RunPipelineRequest{Pipeline: pipeline, Labels: labels}, nil
 }
 
-func parseScript(filename string) ([]*genomics.Action, error) {
+func parseFile(filename string) ([]*genomics.Action, error) {
 	var scanner *bufio.Scanner
 	if filename == "-" {
 		scanner = bufio.NewScanner(os.Stdin)
 	} else {
+		var actions []*genomics.Action
+		if parseJSON(filename, &actions) == nil {
+			return actions, nil
+		}
+
 		f, err := os.Open(filename)
 		if err != nil {
 			return nil, fmt.Errorf("opening script: %v", err)
