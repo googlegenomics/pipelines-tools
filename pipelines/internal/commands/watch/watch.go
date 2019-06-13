@@ -63,53 +63,34 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 }
 
 func watch(ctx context.Context, service *genomics.Service, project, name, topic string) (interface{}, error) {
-	sub, err := newPubSubSubscription(ctx, project, topic)
+	lro, err := service.Projects.Operations.Get(name).Context(ctx).Do()
 	if err != nil {
-		return nil, fmt.Errorf("creating Pub/Sub subscription: %v", err)
+		return nil, fmt.Errorf("getting operation status: %v", err)
 	}
-	defer sub.Delete(ctx)
 
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	var metadata genomics.Metadata
+	if err := json.Unmarshal(lro.Metadata, &metadata); err != nil {
+		return nil, fmt.Errorf("parsing metadata: %v", err)
+	}
+
+	if *actions {
+		encoded, err := json.MarshalIndent(metadata.Pipeline.Actions, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("encoding actions: %v", err)
+		}
+		fmt.Printf("%s\n", encoded)
+	}
 
 	var events []*genomics.Event
-	var response interface{}
-	var receiverErr error
-	var receiverLock sync.Mutex
-	err = sub.Receive(ctx, func(ctx context.Context, m *pubsub.Message) {
-		receiverLock.Lock()
-		defer receiverLock.Unlock()
-		m.Ack()
-
-		exit := func(r interface{}, err error) {
-			if ctx.Err() != nil {
-				return
-			}
-			response = r
-			receiverErr = err
-			cancel()
-		}
-
+	scan := func(ctx context.Context) (bool, interface{}, error) {
 		lro, err := service.Projects.Operations.Get(name).Context(ctx).Do()
 		if err != nil {
-			exit(nil, fmt.Errorf("getting operation status: %v", err))
-			return
+			return false, nil, fmt.Errorf("getting operation status: %v", err)
 		}
 
 		var metadata genomics.Metadata
 		if err := json.Unmarshal(lro.Metadata, &metadata); err != nil {
-			exit(nil, fmt.Errorf("parsing metadata: %v", err))
-			return
-		}
-
-		if *actions {
-			*actions = false
-			encoded, err := json.MarshalIndent(metadata.Pipeline.Actions, "", "  ")
-			if err != nil {
-				exit(nil, fmt.Errorf("encoding actions: %v", err))
-				return
-			}
-			fmt.Printf("%s\n", encoded)
+			return false, nil, fmt.Errorf("parsing metadata: %v", err)
 		}
 
 		if len(events) != len(metadata.Events) {
@@ -126,16 +107,64 @@ func watch(ctx context.Context, service *genomics.Service, project, name, topic 
 
 		if lro.Done {
 			if lro.Error != nil {
-				exit(lro.Error, nil)
-				return
+				return true, lro.Error, nil
 			}
-			exit(lro.Response, nil)
+			return true, lro.Response, nil
 		}
-	})
-	if err != nil && err != context.Canceled {
-		return nil, fmt.Errorf("receiving message: %v", err)
+
+		return false, nil, nil
 	}
-	return response, receiverErr
+
+	if metadata.PubSubTopic != "" {
+		sub, err := newPubSubSubscription(ctx, project, metadata.PubSubTopic)
+		if err != nil {
+			return nil, fmt.Errorf("creating Pub/Sub subscription: %v", err)
+		}
+		defer sub.Delete(ctx)
+
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		var response interface{}
+		var receiverErr error
+		var receiverLock sync.Mutex
+		err = sub.Receive(ctx, func(ctx context.Context, m *pubsub.Message) {
+			receiverLock.Lock()
+			defer receiverLock.Unlock()
+			m.Ack()
+
+			exit := func(r interface{}, err error) {
+				if ctx.Err() != nil {
+					return
+				}
+				response = r
+				receiverErr = err
+				cancel()
+			}
+
+			if done, result, err := scan(ctx); err != nil || done {
+				exit(result, err)
+			}
+		})
+		if err != nil && err != context.Canceled {
+			return nil, fmt.Errorf("receiving message: %v", err)
+		}
+		return response, receiverErr
+	} else {
+		const initialDelay = 5 * time.Second
+		delay := initialDelay
+		for {
+			if done, result, err := scan(ctx); err != nil || done {
+				return result, err
+			}
+
+			time.Sleep(delay)
+			delay = time.Duration(float64(delay) * 1.5)
+			if limit := time.Minute; delay > limit {
+				delay = limit
+			}
+		}
+	}
 }
 
 func newPubSubSubscription(ctx context.Context, projectID, topicName string) (*pubsub.Subscription, error) {
