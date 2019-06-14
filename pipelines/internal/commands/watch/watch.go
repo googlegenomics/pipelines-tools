@@ -108,7 +108,6 @@ func watch(ctx context.Context, service *genomics.Service, project, name string)
 			}
 			return true, lro.Response, nil
 		}
-
 		return false, nil, nil
 	}
 
@@ -191,6 +190,7 @@ func newPubSubSubscription(ctx context.Context, projectID, topic string) (*pubsu
 	if len(el) < 4 {
 		return nil, fmt.Errorf("invalid Pub/Sub topic")
 	}
+
 	sub, err := client.CreateSubscription(ctx, fmt.Sprintf("s%d", id), pubsub.SubscriptionConfig{
 		Topic:            client.TopicInProject(el[3], el[1]),
 		AckDeadline:      10 * time.Second,

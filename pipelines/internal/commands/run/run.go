@@ -129,7 +129,7 @@ import (
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/commands/watch"
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/common"
 	"golang.org/x/oauth2/google"
-	"google.golang.org/api/compute/v1"
+	compute "google.golang.org/api/compute/v1"
 	genomics "google.golang.org/api/genomics/v2alpha1"
 	"google.golang.org/api/googleapi"
 )
@@ -173,7 +173,7 @@ var (
 	cosChannel     = flags.String("cos-channel", "", "if set, specifies the COS release channel to use")
 	serviceAccount = flags.String("service-account", "", "if set, specifies the service account for the VM")
 	outputInterval = flags.Duration("output-interval", 0, "if non-zero, specifies the time interval for logging output during runs")
-	pubSub         = flags.Bool("pub-sub", true, "if true, attempt to use Pub/Sub notifications to monitor the operation completion")
+	pubSub         = flags.Bool("pub-sub", true, "if true, attempt to use Pub/Sub to monitor the operation state")
 )
 
 func init() {
@@ -262,29 +262,24 @@ func pubSubTopic(ctx context.Context, projectID string) string {
 		return ""
 	}
 
-	t := client.Topic("pipelines-tool")
-	exists, err := t.Exists(ctx)
+	topic := client.Topic("pipelines-tool")
+	exists, err := topic.Exists(ctx)
 	if err != nil {
 		return ""
 	}
 	if exists {
-		config, err := t.Config(ctx)
-		if err != nil {
+		if config, err := topic.Config(ctx); err != nil || config.Labels["created-by"] != "pipelines-tool" {
 			return ""
 		}
-		if config.Labels["created-by"] != "pipelines-tool" {
-			return ""
-		}
-		return t.String()
+		return topic.String()
 	}
 
-	topic, err := client.CreateTopic(ctx, "pipelines-tool")
+	t, err := client.CreateTopic(ctx, "pipelines-tool")
 	if err != nil {
 		return ""
 	}
-
-	topic.Update(ctx, pubsub.TopicConfigToUpdate{Labels: map[string]string{"created-by": "pipelines-tool"}})
-	return topic.String()
+	t.Update(ctx, pubsub.TopicConfigToUpdate{Labels: map[string]string{"created-by": "pipelines-tool"}})
+	return t.String()
 }
 
 func parseJSON(filename string, v interface{}) error {
