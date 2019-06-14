@@ -109,9 +109,7 @@ package run
 import (
 	"bufio"
 	"context"
-	"crypto/rand"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -131,7 +129,7 @@ import (
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/commands/watch"
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/common"
 	"golang.org/x/oauth2/google"
-	compute "google.golang.org/api/compute/v1"
+	"google.golang.org/api/compute/v1"
 	genomics "google.golang.org/api/genomics/v2alpha1"
 	"google.golang.org/api/googleapi"
 )
@@ -175,6 +173,7 @@ var (
 	cosChannel     = flags.String("cos-channel", "", "if set, specifies the COS release channel to use")
 	serviceAccount = flags.String("service-account", "", "if set, specifies the service account for the VM")
 	outputInterval = flags.Duration("output-interval", 0, "if non-zero, specifies the time interval for logging output during runs")
+	pubSub         = flags.Bool("pub-sub", true, "if true, attempt to use Pub/Sub notifications to monitor the operation completion")
 )
 
 func init() {
@@ -216,12 +215,9 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 	abort := make(chan os.Signal, 1)
 	signal.Notify(abort, os.Interrupt)
 
-	topic, err := newPubSubTopic(ctx, req.Pipeline.Resources.ProjectId)
-	if err != nil {
-		return fmt.Errorf("creating Pub/Sub topic: %v", err)
+	if *pubSub {
+		req.PubSubTopic = pubSubTopic(ctx, req.Pipeline.Resources.ProjectId)
 	}
-	defer topic.Delete(ctx)
-	req.PubSubTopic = topic.ID()
 
 	attempt := uint(1)
 	for {
@@ -246,7 +242,7 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 			return nil
 		}
 
-		if err := watch.Invoke(ctx, service, req.Pipeline.Resources.ProjectId, []string{lro.Name, "-topic", topic.ID()}); err != nil {
+		if err := watch.Invoke(ctx, service, req.Pipeline.Resources.ProjectId, []string{lro.Name}); err != nil {
 			if err, ok := err.(common.PipelineExecutionError); ok && err.IsRetriable() {
 				if attempt < *pvmAttempts+*attempts {
 					attempt++
@@ -260,22 +256,35 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 	}
 }
 
-func newPubSubTopic(ctx context.Context, projectID string) (*pubsub.Topic, error) {
+func pubSubTopic(ctx context.Context, projectID string) string {
 	client, err := pubsub.NewClient(ctx, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("creating Pub/Sub client: %v", err)
+		return ""
 	}
 
-	var id uint64
-	if err := binary.Read(rand.Reader, binary.LittleEndian, &id); err != nil {
-		return nil, fmt.Errorf("generating topic name: %v", err)
-	}
-
-	topic, err := client.CreateTopic(ctx, fmt.Sprintf("t%d", id))
+	t := client.Topic("pipelines-tool")
+	exists, err := t.Exists(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("creating topic: %v", err)
+		return ""
 	}
-	return topic, nil
+	if exists {
+		config, err := t.Config(ctx)
+		if err != nil {
+			return ""
+		}
+		if config.Labels["created-by"] != "pipelines-tool" {
+			return ""
+		}
+		return t.String()
+	}
+
+	topic, err := client.CreateTopic(ctx, "pipelines-tool")
+	if err != nil {
+		return ""
+	}
+
+	topic.Update(ctx, pubsub.TopicConfigToUpdate{Labels: map[string]string{"created-by": "pipelines-tool"}})
+	return topic.String()
 }
 
 func parseJSON(filename string, v interface{}) error {

@@ -36,7 +36,6 @@ var (
 
 	actions = flags.Bool("actions", false, "show action details")
 	details = flags.Bool("details", false, "show event details")
-	topic   = flags.String("topic", "", "the Pub/Sub topic to watch")
 )
 
 func Invoke(ctx context.Context, service *genomics.Service, project string, arguments []string) error {
@@ -44,12 +43,9 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 	if len(names) < 1 {
 		return errors.New("missing operation name")
 	}
-	if *topic == "" {
-		return errors.New("missing Pub/Sub topic")
-	}
 
 	name := common.ExpandOperationName(project, names[0])
-	result, err := watch(ctx, service, project, name, *topic)
+	result, err := watch(ctx, service, project, name)
 	if err != nil {
 		return fmt.Errorf("watching pipeline: %v", err)
 	}
@@ -62,7 +58,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 	return nil
 }
 
-func watch(ctx context.Context, service *genomics.Service, project, name, topic string) (interface{}, error) {
+func watch(ctx context.Context, service *genomics.Service, project, name string) (interface{}, error) {
 	lro, err := service.Projects.Operations.Get(name).Context(ctx).Do()
 	if err != nil {
 		return nil, fmt.Errorf("getting operation status: %v", err)
@@ -122,6 +118,11 @@ func watch(ctx context.Context, service *genomics.Service, project, name, topic 
 		}
 		defer sub.Delete(ctx)
 
+		// Check if the operation finished before creating the subscription.
+		if done, result, err := scan(ctx); err != nil || done {
+			return result, err
+		}
+
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 
@@ -151,17 +152,24 @@ func watch(ctx context.Context, service *genomics.Service, project, name, topic 
 		}
 		return response, receiverErr
 	} else {
+		if lro.Done {
+			if lro.Error != nil {
+				return lro.Error, nil
+			}
+			return lro.Response, nil
+		}
+
 		const initialDelay = 5 * time.Second
 		delay := initialDelay
 		for {
-			if done, result, err := scan(ctx); err != nil || done {
-				return result, err
-			}
-
 			time.Sleep(delay)
 			delay = time.Duration(float64(delay) * 1.5)
 			if limit := time.Minute; delay > limit {
 				delay = limit
+			}
+
+			if done, result, err := scan(ctx); err != nil || done {
+				return result, err
 			}
 		}
 	}
