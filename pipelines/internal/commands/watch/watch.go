@@ -23,6 +23,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -175,7 +176,7 @@ func watch(ctx context.Context, service *genomics.Service, project, name string)
 	}
 }
 
-func newPubSubSubscription(ctx context.Context, projectID, topicName string) (*pubsub.Subscription, error) {
+func newPubSubSubscription(ctx context.Context, projectID, topic string) (*pubsub.Subscription, error) {
 	client, err := pubsub.NewClient(ctx, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("creating a Pub/Sub client: %v", err)
@@ -186,8 +187,12 @@ func newPubSubSubscription(ctx context.Context, projectID, topicName string) (*p
 		return nil, fmt.Errorf("generating subscription name: %v", err)
 	}
 
+	el := strings.Split(topic, "/")
+	if len(el) < 4 {
+		return nil, fmt.Errorf("invalid Pub/Sub topic")
+	}
 	sub, err := client.CreateSubscription(ctx, fmt.Sprintf("s%d", id), pubsub.SubscriptionConfig{
-		Topic:            client.Topic(topicName),
+		Topic:            client.TopicInProject(el[3], el[1]),
 		AckDeadline:      10 * time.Second,
 		ExpirationPolicy: 25 * time.Hour,
 	})
