@@ -133,6 +133,13 @@ import (
 	"google.golang.org/api/googleapi"
 )
 
+type LocaleType int
+
+const (
+	Zone   LocaleType = 0
+	Region LocaleType = 1
+)
+
 var (
 	googleRoot  = &genomics.Mount{Disk: "google", Path: "/mnt/google"}
 	environment = make(map[string]string)
@@ -144,7 +151,7 @@ var (
 	basePath       = flags.String("base-path", "", "optional API service base path")
 	name           = flags.String("name", "", "optional name applied as a label")
 	scopes         = flags.String("scopes", "", "comma separated list of additional API scopes")
-	zones          = flags.String("zones", "us-east1-d", "comma separated list of zone names or prefixes (e.g. us-*)")
+	zones          = flags.String("zones", "", "comma separated list of zone names or prefixes (e.g. us-*)")
 	output         = flags.String("output", "", "GCS path to write output to")
 	dryRun         = flags.Bool("dry-run", false, "don't run, just show pipeline")
 	wait           = flags.Bool("wait", true, "wait for the pipeline to finish")
@@ -172,6 +179,7 @@ var (
 	cosChannel     = flags.String("cos-channel", "", "if set, specifies the COS release channel to use")
 	serviceAccount = flags.String("service-account", "", "if set, specifies the service account for the VM")
 	outputInterval = flags.Duration("output-interval", 0, "if non-zero, specifies the time interval for logging output during runs")
+	regions        = flags.String("regions", "", "comma separated list of region names or prefixes (e.g. us-*)")
 )
 
 func init() {
@@ -350,9 +358,25 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		return nil, errors.New("no command or input file was specified")
 	}
 
-	zones, err := expandZones(project, listOf(*zones))
+	if *zones != "" && *regions != "" {
+		return nil, errors.New("both zones and regions are supplied")
+	}
+
+	var localeType LocaleType
+	var input *string
+	if *zones != "" {
+		localeType = Zone
+		input = zones
+	} else if *regions != "" {
+		localeType = Region
+		input = regions
+	} else {
+		return nil, errors.New("neither zones nor regions were supplied")
+	}
+
+	locales, err := expandLocales(project, listOf(*input), localeType)
 	if err != nil {
-		return nil, fmt.Errorf("expanding zones: %v", err)
+		return nil, fmt.Errorf("expanding zones/regions: %v", err)
 	}
 
 	vm := &genomics.VirtualMachine{
@@ -385,12 +409,23 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		})
 	}
 
-	pipeline := &genomics.Pipeline{
-		Resources: &genomics.Resources{
+	var resources *genomics.Resources
+	if localeType == Zone {
+		resources = &genomics.Resources{
 			ProjectId:      project,
-			Zones:          zones,
+			Zones:          locales,
 			VirtualMachine: vm,
-		},
+		}
+	} else {
+		resources = &genomics.Resources{
+			ProjectId:      project,
+			Regions:        locales,
+			VirtualMachine: vm,
+		}
+	}
+
+	pipeline := &genomics.Pipeline{
+		Resources:   resources,
 		Environment: environment,
 	}
 
@@ -587,33 +622,33 @@ func namedListOf(input, defaultPrefix string) map[string]string {
 	return output
 }
 
-func expandZones(project string, input []string) ([]string, error) {
-	var zones, prefixes []string
-	for _, zone := range input {
-		if strings.HasSuffix(zone, "*") {
-			prefixes = append(prefixes, zone[:len(zone)-1])
+func expandLocales(project string, input []string, localeType LocaleType) ([]string, error) {
+	var locales, prefixes []string
+	for _, locale := range input {
+		if strings.HasSuffix(locale, "*") {
+			prefixes = append(prefixes, locale[:len(locale)-1])
 		} else {
-			zones = append(zones, zone)
+			locales = append(locales, locale)
 		}
 	}
 	if len(prefixes) > 0 {
-		allZones, err := listZones(project)
+		allLocales, err := listLocales(project, localeType)
 		if err != nil {
 			return nil, err
 		}
-		for _, zone := range allZones {
+		for _, locale := range allLocales {
 			for _, prefix := range prefixes {
-				if strings.HasPrefix(zone, prefix) {
-					zones = append(zones, zone)
+				if strings.HasPrefix(locale, prefix) {
+					locales = append(locales, locale)
 					break
 				}
 			}
 		}
 	}
-	return zones, nil
+	return locales, nil
 }
 
-func listZones(project string) ([]string, error) {
+func listLocales(project string, localeType LocaleType) ([]string, error) {
 	client, err := google.DefaultClient(context.Background(), compute.ComputeScope)
 	if err != nil {
 		return nil, fmt.Errorf("creating compute client: %v", err)
@@ -623,16 +658,32 @@ func listZones(project string) ([]string, error) {
 		return nil, fmt.Errorf("creating compute service: %v", err)
 	}
 
-	resp, err := service.Zones.List(project).Do()
-	if err != nil {
-		return nil, fmt.Errorf("listing zones: %v", err)
-	}
+	switch localeType {
+	case Zone:
+		resp, err := service.Zones.List(project).Do()
+		if err != nil {
+			return nil, fmt.Errorf("listing zones: %v", err)
+		}
 
-	var zones []string
-	for _, zone := range resp.Items {
-		zones = append(zones, zone.Name)
+		var zones []string
+		for _, zone := range resp.Items {
+			zones = append(zones, zone.Name)
+		}
+		return zones, nil
+	case Region:
+		resp, err := service.Regions.List(project).Do()
+		if err != nil {
+			return nil, fmt.Errorf("listing regions: %v", err)
+		}
+
+		var regions []string
+		for _, region := range resp.Items {
+			regions = append(regions, region.Name)
+		}
+		return regions, nil
+	default:
+		return nil, errors.New("unknown locale type")
 	}
-	return zones, nil
 }
 
 func parsePorts(input string) (map[string]int64, error) {
