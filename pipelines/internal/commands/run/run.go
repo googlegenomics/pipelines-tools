@@ -152,6 +152,7 @@ var (
 	name           = flags.String("name", "", "optional name applied as a label")
 	scopes         = flags.String("scopes", "", "comma separated list of additional API scopes")
 	zones          = flags.String("zones", "", "comma separated list of zone names or prefixes (e.g. us-*)")
+	regions        = flags.String("regions", "", "comma separated list of region names or prefixes (e.g. us-*)")
 	output         = flags.String("output", "", "GCS path to write output to")
 	dryRun         = flags.Bool("dry-run", false, "don't run, just show pipeline")
 	wait           = flags.Bool("wait", true, "wait for the pipeline to finish")
@@ -179,7 +180,6 @@ var (
 	cosChannel     = flags.String("cos-channel", "", "if set, specifies the COS release channel to use")
 	serviceAccount = flags.String("service-account", "", "if set, specifies the service account for the VM")
 	outputInterval = flags.Duration("output-interval", 0, "if non-zero, specifies the time interval for logging output during runs")
-	regions        = flags.String("regions", "", "comma separated list of region names or prefixes (e.g. us-*)")
 )
 
 func init() {
