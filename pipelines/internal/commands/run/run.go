@@ -144,7 +144,7 @@ var (
 	basePath       = flags.String("base-path", "", "optional API service base path")
 	name           = flags.String("name", "", "optional name applied as a label")
 	scopes         = flags.String("scopes", "", "comma separated list of additional API scopes")
-	zones          = flags.String("zones", "us-east1-d", "comma separated list of zone names or prefixes (e.g. us-*)")
+	zones          = flags.String("zones", "", "comma separated list of zone names or prefixes (e.g. us-*)")
 	regions        = flags.String("regions", "", "comma separated list of region names or prefixes (e.g. us-*)")
 	output         = flags.String("output", "", "GCS path to write output to")
 	dryRun         = flags.Bool("dry-run", false, "don't run, just show pipeline")
@@ -385,6 +385,9 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		ProjectId:      project,
 		VirtualMachine: vm,
 	}
+	if *regions != "" && *zones != "" {
+		return nil, errors.New("both zones and regions have been supplied")
+	}
 	if *regions != "" {
 		regions, err := expandPrefixes(project, listOf(*regions), listRegions)
 		if err != nil {
@@ -392,6 +395,9 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		}
 		resources.Regions = regions
 	} else {
+		if *zones == "" {
+			*zones = "us-east1-d"
+		}
 		zones, err := expandPrefixes(project, listOf(*zones), listZones)
 		if err != nil {
 			return nil, fmt.Errorf("expanding zones: %v", err)
@@ -597,10 +603,7 @@ func namedListOf(input, defaultPrefix string) map[string]string {
 	return output
 }
 
-func expandPrefixes(
-	project string,
-	input []string,
-	allValues func(project string, service *compute.Service) ([]string, error)) ([]string, error) {
+func expandPrefixes(project string, input []string, allValues func(project string, service *compute.Service) ([]string, error)) ([]string, error) {
 	var results, prefixes []string
 	for _, item := range input {
 		if strings.HasSuffix(item, "*") {
