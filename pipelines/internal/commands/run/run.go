@@ -394,16 +394,17 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 			return nil, fmt.Errorf("expanding regions: %v", err)
 		}
 		resources.Regions = regions
-	} else {
-		if *zones == "" {
-			*zones = "us-east1-d"
-		}
+    }
+    if *zones != "" {
 		zones, err := expandPrefixes(project, listOf(*zones), listZones)
 		if err != nil {
 			return nil, fmt.Errorf("expanding zones: %v", err)
 		}
 		resources.Zones = zones
-	}
+    }
+    if len(resources.Zones) + len(resources.Regions) == 0 {
+        resources.Zones = []string{"us-east1-d"}
+    }
 
 	pipeline := &genomics.Pipeline{
 		Resources:   resources,
