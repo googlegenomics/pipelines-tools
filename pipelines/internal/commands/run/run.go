@@ -144,7 +144,8 @@ var (
 	basePath       = flags.String("base-path", "", "optional API service base path")
 	name           = flags.String("name", "", "optional name applied as a label")
 	scopes         = flags.String("scopes", "", "comma separated list of additional API scopes")
-	zones          = flags.String("zones", "us-east1-d", "comma separated list of zone names or prefixes (e.g. us-*)")
+	zones          = flags.String("zones", "", "comma separated list of zone names or prefixes (e.g. us-*)")
+	regions        = flags.String("regions", "", "comma separated list of region names or prefixes (e.g. us-*)")
 	output         = flags.String("output", "", "GCS path to write output to")
 	dryRun         = flags.Bool("dry-run", false, "don't run, just show pipeline")
 	wait           = flags.Bool("wait", true, "wait for the pipeline to finish")
@@ -350,11 +351,6 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		return nil, errors.New("no command or input file was specified")
 	}
 
-	zones, err := expandZones(project, listOf(*zones))
-	if err != nil {
-		return nil, fmt.Errorf("expanding zones: %v", err)
-	}
-
 	vm := &genomics.VirtualMachine{
 		MachineType: *machineType,
 		Network: &genomics.Network{
@@ -385,12 +381,33 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 		})
 	}
 
+	resources := &genomics.Resources{
+		ProjectId:      project,
+		VirtualMachine: vm,
+	}
+	if *regions != "" && *zones != "" {
+		return nil, errors.New("both zones and regions have been supplied")
+	}
+	if *regions != "" {
+		regions, err := expandPrefixes(project, listOf(*regions), listRegions)
+		if err != nil {
+			return nil, fmt.Errorf("expanding regions: %v", err)
+		}
+		resources.Regions = regions
+    }
+    if *zones != "" {
+		zones, err := expandPrefixes(project, listOf(*zones), listZones)
+		if err != nil {
+			return nil, fmt.Errorf("expanding zones: %v", err)
+		}
+		resources.Zones = zones
+    }
+    if len(resources.Zones) + len(resources.Regions) == 0 {
+        resources.Zones = []string{"us-east1-d"}
+    }
+
 	pipeline := &genomics.Pipeline{
-		Resources: &genomics.Resources{
-			ProjectId:      project,
-			Zones:          zones,
-			VirtualMachine: vm,
-		},
+		Resources:   resources,
 		Environment: environment,
 	}
 
@@ -587,52 +604,62 @@ func namedListOf(input, defaultPrefix string) map[string]string {
 	return output
 }
 
-func expandZones(project string, input []string) ([]string, error) {
-	var zones, prefixes []string
-	for _, zone := range input {
-		if strings.HasSuffix(zone, "*") {
-			prefixes = append(prefixes, zone[:len(zone)-1])
+func expandPrefixes(project string, input []string, allValues func(project string, service *compute.Service) ([]string, error)) ([]string, error) {
+	var results, prefixes []string
+	for _, item := range input {
+		if strings.HasSuffix(item, "*") {
+			prefixes = append(prefixes, item[:len(item)-1])
 		} else {
-			zones = append(zones, zone)
+			results = append(results, item)
 		}
 	}
 	if len(prefixes) > 0 {
-		allZones, err := listZones(project)
+		client, err := google.DefaultClient(context.Background(), compute.ComputeScope)
+		if err != nil {
+			return nil, fmt.Errorf("creating compute client: %v", err)
+		}
+		service, err := compute.New(client)
+		if err != nil {
+			return nil, fmt.Errorf("creating compute service: %v", err)
+		}
+		values, err := allValues(project, service)
 		if err != nil {
 			return nil, err
 		}
-		for _, zone := range allZones {
+		for _, value := range values {
 			for _, prefix := range prefixes {
-				if strings.HasPrefix(zone, prefix) {
-					zones = append(zones, zone)
+				if strings.HasPrefix(value, prefix) {
+					results = append(results, value)
 					break
 				}
 			}
 		}
 	}
-	return zones, nil
+	return results, nil
 }
 
-func listZones(project string) ([]string, error) {
-	client, err := google.DefaultClient(context.Background(), compute.ComputeScope)
-	if err != nil {
-		return nil, fmt.Errorf("creating compute client: %v", err)
-	}
-	service, err := compute.New(client)
-	if err != nil {
-		return nil, fmt.Errorf("creating compute service: %v", err)
-	}
-
+func listZones(project string, service *compute.Service) ([]string, error) {
 	resp, err := service.Zones.List(project).Do()
 	if err != nil {
 		return nil, fmt.Errorf("listing zones: %v", err)
 	}
-
 	var zones []string
 	for _, zone := range resp.Items {
 		zones = append(zones, zone.Name)
 	}
 	return zones, nil
+}
+
+func listRegions(project string, service *compute.Service) ([]string, error) {
+	resp, err := service.Regions.List(project).Do()
+	if err != nil {
+		return nil, fmt.Errorf("listing regions: %v", err)
+	}
+	var regions []string
+	for _, region := range resp.Items {
+		regions = append(regions, region.Name)
+	}
+	return regions, nil
 }
 
 func parsePorts(input string) (map[string]int64, error) {
