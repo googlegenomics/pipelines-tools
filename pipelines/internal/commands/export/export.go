@@ -23,137 +23,56 @@ import (
 	"fmt"
 	"time"
 
-	"cloud.google.com/go/bigquery"
-	"cloud.google.com/go/civil"
+	"github.com/googlegenomics/pipelines-tools/export/export"
 	genomics "google.golang.org/api/genomics/v2alpha1"
 )
 
 var (
 	flags = flag.NewFlagSet("", flag.ExitOnError)
 
-	filter      = flags.String("filter", "", "the export filter")
-	datasetName = flags.String("dataset", "", "the dataset to export to which must already exist")
-	tableName   = flags.String("table", "", "the table to export to")
-	update      = flags.Bool("update", true, "only export operations newer than those already exported")
+	filter  = flags.String("filter", "", "the export filter")
+	dataset = flags.String("dataset", "", "the dataset to export to which must already exist")
+	table   = flags.String("table", "", "the table to export to")
+	update  = flags.Bool("update", true, "only export operations newer than those already exported")
 )
-
-type row struct {
-	Name  string
-	Done  bool
-	Error *status `bigquery:",nullable"`
-
-	// The raw pipeline JSON.
-	Pipeline string
-
-	Labels []label
-	Events []event
-
-	CreateTime         civil.DateTime
-	StartTime, EndTime bigquery.NullDateTime
-
-	// Additional fields pulled out of the pipeline for convenience.
-	Regions     []string
-	Zones       []string
-	MachineType string
-	Preemptible bool
-}
-
-type status struct {
-	Message string
-	Code    int64
-}
-
-type event struct {
-	Timestamp   civil.DateTime
-	Description string
-}
-
-type label struct {
-	Key, Value string
-}
 
 func Invoke(ctx context.Context, service *genomics.Service, project string, arguments []string) error {
 	flags.Parse(arguments)
 
-	if *datasetName == "" || *tableName == "" {
+	if *dataset == "" || *table == "" {
 		return errors.New("dataset and table are required")
 	}
 
+	e, err := export.NewExporter(ctx, project, *filter, *dataset, *table, *update, func(filter string, t time.Time) string {
+		return export.CombineTerms(fmt.Sprintf("metadata.createTime > %q", t.Format(time.RFC3339Nano)), filter, "%s AND (%s)")
+	})
+	if err != nil {
+		return fmt.Errorf("creating exporter: %v", err)
+	}
+
 	path := fmt.Sprintf("projects/%s/operations", project)
-	call := service.Projects.Operations.List(path).Context(ctx)
-	call.PageSize(256)
+	call := service.Projects.Operations.List(path).Context(ctx).PageSize(256).Filter(e.Filter)
+	err = call.Pages(ctx, func(resp *genomics.ListOperationsResponse) error {
+		e.StartPage()
 
-	bq, err := bigquery.NewClient(ctx, project)
-	if err != nil {
-		return fmt.Errorf("creating BigQuery client: %v", err)
-	}
-
-	dataset := bq.Dataset(*datasetName)
-	if _, err := dataset.Metadata(ctx); err != nil {
-		return fmt.Errorf("looking up dataset: %v", err)
-	}
-
-	schema, err := bigquery.InferSchema(row{})
-	if err != nil {
-		return fmt.Errorf("inferring schema: %v", err)
-	}
-
-	f := *filter
-	table := dataset.Table(*tableName)
-	if _, err := table.Metadata(ctx); err != nil {
-		if err := table.Create(ctx, &bigquery.TableMetadata{Schema: schema}); err != nil {
-			return fmt.Errorf("creating table: %v", err)
-		}
-	} else if *update {
-		timestamp, err := latestTimestamp(ctx, bq, project)
-		if err != nil {
-			return fmt.Errorf("retrieving latest timestamp: %v", err)
-		}
-		if timestamp != "" {
-			expr := fmt.Sprintf(`metadata.createTime > %q`, timestamp)
-			if f != "" {
-				f = fmt.Sprintf("(%s) AND %s", f, expr)
-			} else {
-				f = expr
-			}
-		}
-	}
-	call.Filter(f)
-
-	uploader := table.Uploader()
-
-	fmt.Printf("Exporting operations")
-
-	var count int
-	var pageToken string
-	for {
-		resp, err := call.PageToken(pageToken).Do()
-		if err != nil {
-			return fmt.Errorf("calling list (after %d operations): %v", count, err)
-		}
-
-		fmt.Printf(".")
-
-		var savers []*bigquery.StructSaver
 		for _, operation := range resp.Operations {
 			var metadata genomics.Metadata
 			if err := json.Unmarshal(operation.Metadata, &metadata); err != nil {
-				return fmt.Errorf("unmarshalling operation (after %d operations): %v", count, err)
-				return err
+				return fmt.Errorf("unmarshalling operation (after %d operations): %v", e.Count, err)
 			}
 
 			pipeline, err := json.Marshal(metadata.Pipeline)
 			if err != nil {
-				return fmt.Errorf("marshalling pipeline (after %d operations): %v", count, err)
+				return fmt.Errorf("marshalling pipeline (after %d operations): %v", e.Count, err)
 			}
 			resources := metadata.Pipeline.Resources
 
-			r := row{
+			r := export.Row{
 				Name:       operation.Name,
 				Done:       operation.Done,
-				CreateTime: parseTimestamp(metadata.CreateTime).DateTime,
-				StartTime:  parseTimestamp(metadata.StartTime),
-				EndTime:    parseTimestamp(metadata.EndTime),
+				CreateTime: export.ParseTimestamp(metadata.CreateTime).Timestamp,
+				StartTime:  export.ParseTimestamp(metadata.StartTime),
+				EndTime:    export.ParseTimestamp(metadata.EndTime),
 
 				Pipeline:    string(pipeline),
 				Regions:     resources.Regions,
@@ -163,79 +82,38 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 			}
 
 			if operation.Error != nil {
-				r.Error = &status{
+				r.Error = &export.Status{
 					Message: operation.Error.Message,
 					Code:    operation.Error.Code,
 				}
 			}
 
 			for k, v := range metadata.Labels {
-				r.Labels = append(r.Labels, label{Key: k, Value: v})
+				r.Labels = append(r.Labels, export.Label{Key: k, Value: v})
 			}
 
 			for _, e := range metadata.Events {
-				r.Events = append(r.Events, event{
-					Timestamp:   parseTimestamp(e.Timestamp).DateTime,
+				r.Events = append(r.Events, export.Event{
+					Timestamp:   export.ParseTimestamp(e.Timestamp).Timestamp,
 					Description: e.Description,
 				})
 			}
 
-			savers = append(savers, &bigquery.StructSaver{
-				Struct:   r,
-				InsertID: operation.Name,
-				Schema:   schema,
-			})
-			count++
+			if err := e.Encode(&r); err != nil {
+				return fmt.Errorf("encoding row (after %d operations): %v", e.Count, err)
+			}
 		}
 
-		if err := uploader.Put(ctx, savers); err != nil {
-			return fmt.Errorf("uploading rows (after %d operations): %v", count, err)
+		if err := e.FinishPage(ctx); err != nil {
+			return fmt.Errorf("finishing page (after %d operations): %v", e.Count, err)
 		}
 
-		if resp.NextPageToken == "" {
-			fmt.Printf("done\n%d operations exported\n", count)
-			return nil
-		}
-
-		pageToken = resp.NextPageToken
-	}
-}
-
-func parseTimestamp(ts string) bigquery.NullDateTime {
-	t, err := time.Parse(time.RFC3339, ts)
+		return nil
+	})
 	if err != nil {
-		return bigquery.NullDateTime{}
-	}
-	return bigquery.NullDateTime{
-		DateTime: civil.DateTimeOf(t),
-		Valid:    true,
-	}
-}
-
-func latestTimestamp(ctx context.Context, bq *bigquery.Client, project string) (string, error) {
-	q := bq.Query(fmt.Sprintf("SELECT MAX(CreateTime) FROM `%s.%s.%s`", project, *datasetName, *tableName))
-	job, err := q.Run(ctx)
-	if err != nil {
-		return "", fmt.Errorf("running query: %v", err)
-	}
-	status, err := job.Wait(ctx)
-	if err != nil {
-		return "", fmt.Errorf("waiting for query: %v", err)
-	}
-	if err := status.Err(); err != nil {
-		return "", fmt.Errorf("query status: %v", err)
-	}
-	it, err := job.Read(ctx)
-	if err != nil {
-		return "", fmt.Errorf("reading query: %v", err)
+		return fmt.Errorf("exporting operations: %v", err)
 	}
 
-	var v []bigquery.Value
-	if err := it.Next(&v); err != nil {
-		return "", fmt.Errorf("getting query data: %v", err)
-	}
-	if v[0] == nil {
-		return "", nil
-	}
-	return fmt.Sprintf("%s", v[0]), nil
+	e.Finish()
+	return nil
 }
