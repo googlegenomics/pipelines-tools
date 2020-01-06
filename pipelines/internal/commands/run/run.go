@@ -125,6 +125,7 @@ import (
 	"strings"
 	"time"
 
+	"cloud.google.com/go/pubsub"
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/commands/watch"
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/common"
 	"golang.org/x/oauth2/google"
@@ -173,6 +174,7 @@ var (
 	cosChannel     = flags.String("cos-channel", "", "if set, specifies the COS release channel to use")
 	serviceAccount = flags.String("service-account", "", "if set, specifies the service account for the VM")
 	outputInterval = flags.Duration("output-interval", 0, "if non-zero, specifies the time interval for logging output during runs")
+	pubSub         = flags.Bool("pub-sub", true, "if true, attempt to use Pub/Sub to monitor the operation state")
 )
 
 func init() {
@@ -214,6 +216,10 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 	abort := make(chan os.Signal, 1)
 	signal.Notify(abort, os.Interrupt)
 
+	if *pubSub {
+		req.PubSubTopic = pubSubTopic(ctx, req.Pipeline.Resources.ProjectId)
+	}
+
 	attempt := uint(1)
 	for {
 		req.Pipeline.Resources.VirtualMachine.Preemptible = (attempt <= *pvmAttempts)
@@ -249,6 +255,32 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 		}
 		return nil
 	}
+}
+
+func pubSubTopic(ctx context.Context, projectID string) string {
+	client, err := pubsub.NewClient(ctx, projectID)
+	if err != nil {
+		return ""
+	}
+
+	topic := client.Topic("pipelines-tool")
+	exists, err := topic.Exists(ctx)
+	if err != nil {
+		return ""
+	}
+	if exists {
+		if config, err := topic.Config(ctx); err != nil || config.Labels["created-by"] != "pipelines-tool" {
+			return ""
+		}
+		return topic.String()
+	}
+
+	t, err := client.CreateTopic(ctx, "pipelines-tool")
+	if err != nil {
+		return ""
+	}
+	t.Update(ctx, pubsub.TopicConfigToUpdate{Labels: map[string]string{"created-by": "pipelines-tool"}})
+	return t.String()
 }
 
 func parseJSON(filename string, v interface{}) error {
