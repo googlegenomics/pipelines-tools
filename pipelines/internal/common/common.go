@@ -7,21 +7,38 @@ import (
 	"path"
 	"strings"
 
-	genomics "google.golang.org/api/genomics/v2alpha1"
+	genomics "google.golang.org/api/lifesciences/v2beta"
 	"google.golang.org/genproto/googleapis/rpc/code"
 )
 
-// ExpandOperationName adds the project and operations prefixes to name (if
+// ExpandOperationName adds the project, location and operations prefixes to name (if
 // they are not already present).
-func ExpandOperationName(project, name string) string {
+func ExpandOperationName(project, location, name string) string {
 	if !strings.HasPrefix(name, "projects/") {
-		if !strings.HasPrefix(name, "operations/") {
-			name = path.Join("operations/", name)
+		if !strings.HasPrefix(name, "locations/") {
+			if !strings.HasPrefix(name, "operations/") {
+				name = path.Join("operations/", name)
+			}
+			name = path.Join("locations", location, name)
 		}
 		name = path.Join("projects", project, name)
 	}
 	return name
 }
+
+//func ExpandOperationName(prefixes, values []string, name string) (string, error) {
+// 	if len(prefixes) != len(values) {
+//		return name, fmt.Errorf("lengths of prefixes and values not equal")
+//	}
+//	if len(prefixes) == 0 {
+//		return name, nil
+//	}
+//	name, _ := ExpandOperationName(prefixes[1:], values[1:], name)
+//	if !strings.HasPrefix(name, path.Clean(prefixes[0])+"/") {
+//		name = path.Join(prefixes[0], values[0], name)
+//	}
+//	return name, nil
+//}
 
 // ParseFlags calls parse on flags and collects non-flag arguments until there
 // are no non-flag arguments remaining.  This makes it possible to handle mixed

@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/common"
-	genomics "google.golang.org/api/genomics/v2alpha1"
+	genomics "google.golang.org/api/lifesciences/v2beta"
 )
 
 var (
@@ -34,13 +34,13 @@ var (
 	details = flags.Bool("details", false, "show event details")
 )
 
-func Invoke(ctx context.Context, service *genomics.Service, project string, arguments []string) error {
+func Invoke(ctx context.Context, service *genomics.Service, project string, location string, arguments []string) error {
 	names := common.ParseFlags(flags, arguments)
 	if len(names) < 1 {
 		return errors.New("missing operation name")
 	}
 
-	name := common.ExpandOperationName(project, names[0])
+	name := common.ExpandOperationName(project, location, names[0])
 	result, err := watch(ctx, service, name)
 	if err != nil {
 		return fmt.Errorf("watching pipeline: %v", err)
@@ -58,8 +58,9 @@ func watch(ctx context.Context, service *genomics.Service, name string) (interfa
 	var events []*genomics.Event
 	const initialDelay = 5 * time.Second
 	delay := initialDelay
+	fmt.Println(name)
 	for {
-		lro, err := service.Projects.Operations.Get(name).Context(ctx).Do()
+		lro, err := service.Projects.Locations.Operations.Get(name).Context(ctx).Do()
 		if err != nil {
 			return nil, fmt.Errorf("getting operation status: %v", err)
 		}
@@ -84,7 +85,11 @@ func watch(ctx context.Context, service *genomics.Service, name string) (interfa
 				fmt.Println(timestamp.Format("15:04:05"), metadata.Events[i].Description)
 
 				if *details {
-					fmt.Println(string(metadata.Events[i].Details))
+					encoded, err := json.MarshalIndent(metadata.Events[i], "", " ")
+					if err != nil {
+						return nil, fmt.Errorf("encoding event: %v", err)
+					}
+					fmt.Printf("%s\n", encoded)
 				}
 			}
 			events = metadata.Events

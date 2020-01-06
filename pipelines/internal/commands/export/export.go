@@ -25,7 +25,7 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/civil"
-	genomics "google.golang.org/api/genomics/v2alpha1"
+	genomics "google.golang.org/api/lifesciences/v2beta"
 )
 
 var (
@@ -72,15 +72,15 @@ type label struct {
 	Key, Value string
 }
 
-func Invoke(ctx context.Context, service *genomics.Service, project string, arguments []string) error {
+func Invoke(ctx context.Context, service *genomics.Service, project string, location string, arguments []string) error {
 	flags.Parse(arguments)
 
 	if *datasetName == "" || *tableName == "" {
 		return errors.New("dataset and table are required")
 	}
 
-	path := fmt.Sprintf("projects/%s/operations", project)
-	call := service.Projects.Operations.List(path).Context(ctx)
+	path := fmt.Sprintf("projects/%s/locations/%s/operations", project, location)
+	call := service.Projects.Locations.Operations.List(path).Context(ctx)
 	call.PageSize(256)
 
 	bq, err := bigquery.NewClient(ctx, project)
