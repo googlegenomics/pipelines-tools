@@ -36,10 +36,6 @@ import (
 	genomics "google.golang.org/api/lifesciences/v2beta"
 )
 
-const (
-	genomicsScope = "https://www.googleapis.com/auth/cloud-platform"
-)
-
 var (
 	project  = flag.String("project", defaultProject(), "the cloud project name")
 	location = flag.String("location", "us-central1", "Google cloud location to store the metadata for the operations")
@@ -103,7 +99,7 @@ func newService(ctx context.Context, basePath string) (*genomics.Service, error)
 
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, &http.Client{Transport: &transport})
 
-	client, err := google.DefaultClient(ctx, genomicsScope)
+	client, err := google.DefaultClient(ctx, genomics.CloudPlatformScope)
 	if err != nil {
 		return nil, fmt.Errorf("creating authenticated client: %v", err)
 	}

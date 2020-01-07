@@ -181,7 +181,7 @@ func init() {
 	flags.Var(&common.MapFlagValue{vmLabels}, "vm-labels", "label names and values to apply to the virtual machine")
 }
 
-func Invoke(ctx context.Context, service *genomics.Service, project string, location string, arguments []string) error {
+func Invoke(ctx context.Context, service *genomics.Service, project, location string, arguments []string) error {
 	filenames := common.ParseFlags(flags, arguments)
 
 	var filename string
@@ -210,7 +210,7 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, loca
 	return runPipeline(ctx, service, req, project, location)
 }
 
-func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.RunPipelineRequest, project string, location string) error {
+func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.RunPipelineRequest, project, location string) error {
 	abort := make(chan os.Signal, 1)
 	signal.Notify(abort, os.Interrupt)
 
@@ -395,17 +395,17 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 			return nil, fmt.Errorf("expanding regions: %v", err)
 		}
 		resources.Regions = regions
-	}
-	if *zones != "" {
+    }
+    if *zones != "" {
 		zones, err := expandPrefixes(project, listOf(*zones), listZones)
 		if err != nil {
 			return nil, fmt.Errorf("expanding zones: %v", err)
 		}
 		resources.Zones = zones
-	}
-	if len(resources.Zones)+len(resources.Regions) == 0 {
-		resources.Zones = []string{"us-east1-d"}
-	}
+    }
+    if len(resources.Zones) + len(resources.Regions) == 0 {
+        resources.Zones = []string{"us-east1-d"}
+    }
 
 	pipeline := &genomics.Pipeline{
 		Resources:   resources,

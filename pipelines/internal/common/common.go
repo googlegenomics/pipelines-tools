@@ -26,20 +26,6 @@ func ExpandOperationName(project, location, name string) string {
 	return name
 }
 
-//func ExpandOperationName(prefixes, values []string, name string) (string, error) {
-// 	if len(prefixes) != len(values) {
-//		return name, fmt.Errorf("lengths of prefixes and values not equal")
-//	}
-//	if len(prefixes) == 0 {
-//		return name, nil
-//	}
-//	name, _ := ExpandOperationName(prefixes[1:], values[1:], name)
-//	if !strings.HasPrefix(name, path.Clean(prefixes[0])+"/") {
-//		name = path.Join(prefixes[0], values[0], name)
-//	}
-//	return name, nil
-//}
-
 // ParseFlags calls parse on flags and collects non-flag arguments until there
 // are no non-flag arguments remaining.  This makes it possible to handle mixed
 // flag and non-flag arguments.

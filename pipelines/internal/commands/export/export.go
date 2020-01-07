@@ -72,7 +72,7 @@ type label struct {
 	Key, Value string
 }
 
-func Invoke(ctx context.Context, service *genomics.Service, project string, location string, arguments []string) error {
+func Invoke(ctx context.Context, service *genomics.Service, project, location string, arguments []string) error {
 	flags.Parse(arguments)
 
 	if *datasetName == "" || *tableName == "" {

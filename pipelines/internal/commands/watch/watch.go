@@ -34,7 +34,7 @@ var (
 	details = flags.Bool("details", false, "show event details")
 )
 
-func Invoke(ctx context.Context, service *genomics.Service, project string, location string, arguments []string) error {
+func Invoke(ctx context.Context, service *genomics.Service, project, location string, arguments []string) error {
 	names := common.ParseFlags(flags, arguments)
 	if len(names) < 1 {
 		return errors.New("missing operation name")
@@ -58,7 +58,7 @@ func watch(ctx context.Context, service *genomics.Service, name string) (interfa
 	var events []*genomics.Event
 	const initialDelay = 5 * time.Second
 	delay := initialDelay
-	fmt.Println(name)
+
 	for {
 		lro, err := service.Projects.Locations.Operations.Get(name).Context(ctx).Do()
 		if err != nil {
@@ -89,7 +89,7 @@ func watch(ctx context.Context, service *genomics.Service, name string) (interfa
 					if err != nil {
 						return nil, fmt.Errorf("encoding event: %v", err)
 					}
-					fmt.Printf("%s\n", encoded)
+					fmt.Println(string(encoded))
 				}
 			}
 			events = metadata.Events

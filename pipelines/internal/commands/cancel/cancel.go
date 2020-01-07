@@ -26,7 +26,7 @@ import (
 	genomics "google.golang.org/api/lifesciences/v2beta"
 )
 
-func Invoke(ctx context.Context, service *genomics.Service, project string, location string, arguments []string) error {
+func Invoke(ctx context.Context, service *genomics.Service, project, location string, arguments []string) error {
 	if len(arguments) < 1 {
 		return errors.New("missing operation name")
 	}

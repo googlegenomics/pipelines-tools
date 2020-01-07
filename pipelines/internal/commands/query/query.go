@@ -32,7 +32,7 @@ var (
 	all    = flags.Bool("all", false, "show all operations (when false, show only running operations)")
 )
 
-func Invoke(ctx context.Context, service *genomics.Service, project string, location string, arguments []string) error {
+func Invoke(ctx context.Context, service *genomics.Service, project, location string, arguments []string) error {
 	flags.Parse(arguments)
 
 	path := fmt.Sprintf("projects/%s/locations/%s/operations", project, location)
