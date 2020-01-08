@@ -510,6 +510,8 @@ func parse(line string) (*genomics.Action, error) {
 				options[option[:n]] = option[n+1:]
 			} else if p, ok := flags[strings.ToUpper(option)]; ok {
 				*p = true
+			} else {
+				return nil, errors.New("unknown action flag specified")
 			}
 		}
 		line = line[:n]

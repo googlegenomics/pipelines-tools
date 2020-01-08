@@ -21,6 +21,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"path"
 	"time"
 
 	"cloud.google.com/go/bigquery"
@@ -79,8 +80,8 @@ func Invoke(ctx context.Context, service *genomics.Service, project, location st
 		return errors.New("dataset and table are required")
 	}
 
-	path := fmt.Sprintf("projects/%s/locations/%s/operations", project, location)
-	call := service.Projects.Locations.Operations.List(path).Context(ctx)
+	p := path.Join("projects", project, "locations", location)
+	call := service.Projects.Locations.Operations.List(p).Context(ctx)
 	call.PageSize(256)
 
 	bq, err := bigquery.NewClient(ctx, project)

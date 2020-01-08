@@ -19,6 +19,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"path"
 	"strings"
 
 	genomics "google.golang.org/api/lifesciences/v2beta"
@@ -35,8 +36,8 @@ var (
 func Invoke(ctx context.Context, service *genomics.Service, project, location string, arguments []string) error {
 	flags.Parse(arguments)
 
-	path := fmt.Sprintf("projects/%s/locations/%s/operations", project, location)
-	call := service.Projects.Locations.Operations.List(path).Context(ctx)
+	p := path.Join("projects", project, "locations", location)
+	call := service.Projects.Locations.Operations.List(p).Context(ctx)
 
 	if !*all {
 		*filter = strings.Join([]string{*filter, "done=false"}, " ")
