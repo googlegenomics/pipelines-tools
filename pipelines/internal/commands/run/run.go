@@ -511,7 +511,7 @@ func parse(line string) (*genomics.Action, error) {
 			} else if p, ok := flags[strings.ToUpper(option)]; ok {
 				*p = true
 			} else {
-				return nil, errors.New("unknown action flag specified")
+				return nil, fmt.Errorf("unknown action flag %q specified", option)
 			}
 		}
 		line = line[:n]
