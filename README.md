@@ -1,12 +1,12 @@
-# Google Genomics Pipelines Tools
+# Google Lifesciences Pipelines Tools
 [![Build Status](https://travis-ci.org/googlegenomics/pipelines-tools.svg?branch=master)](https://travis-ci.org/googlegenomics/pipelines-tools)
 
 This repository contains various tools that are useful when running pipelines
-with the [Google Genomics API][1]. 
+with the [Google Lifesciences API][1]. 
 
 # Quick Start Using Cloud Shell
 
-1. Enable the Genomics API and the Compute Engine API in a new or existing
+1. Enable the Lifesciences API and the Compute Engine API in a new or existing
 Google Cloud project.
 2. Start a [Cloud Shell][cloud-shell] inside your project.
 3. Inside the Cloud Shell, run the command
@@ -97,9 +97,9 @@ output.
 
 Please report problems using the issue tracker.
 
-[1]: https://cloud.google.com/genomics
+[1]: https://cloud.google.com/life-sciences/
 [2]: https://golang.org/
 [3]: https://github.com/googlegenomics/pipelines-tools/blob/master/pipelines/internal/commands/run/run.go#L18
 [cloud-shell]: https://cloud.google.com/shell/docs/quickstart
-[api-reference]: https://cloud.google.com/genomics/reference/rest/v2alpha1/pipelines/run
+[api-reference]: https://cloud.google.com/life-sciences/docs/reference/rest/v2beta/projects.locations.pipelines/run
 [gcs-fuse]: https://cloud.google.com/storage/docs/gcs-fuse

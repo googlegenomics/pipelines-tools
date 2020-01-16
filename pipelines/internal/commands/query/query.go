@@ -19,9 +19,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"path"
 	"strings"
 
-	genomics "google.golang.org/api/genomics/v2alpha1"
+	genomics "google.golang.org/api/lifesciences/v2beta"
 )
 
 var (
@@ -32,11 +33,11 @@ var (
 	all    = flags.Bool("all", false, "show all operations (when false, show only running operations)")
 )
 
-func Invoke(ctx context.Context, service *genomics.Service, project string, arguments []string) error {
+func Invoke(ctx context.Context, service *genomics.Service, project, location string, arguments []string) error {
 	flags.Parse(arguments)
 
-	path := fmt.Sprintf("projects/%s/operations", project)
-	call := service.Projects.Operations.List(path).Context(ctx)
+	p := path.Join("projects", project, "locations", location)
+	call := service.Projects.Locations.Operations.List(p).Context(ctx)
 
 	if !*all {
 		*filter = strings.Join([]string{*filter, "done=false"}, " ")

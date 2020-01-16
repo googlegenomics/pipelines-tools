@@ -129,8 +129,8 @@ import (
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/common"
 	"golang.org/x/oauth2/google"
 	compute "google.golang.org/api/compute/v1"
-	genomics "google.golang.org/api/genomics/v2alpha1"
 	"google.golang.org/api/googleapi"
+	genomics "google.golang.org/api/lifesciences/v2beta"
 )
 
 var (
@@ -181,7 +181,7 @@ func init() {
 	flags.Var(&common.MapFlagValue{vmLabels}, "vm-labels", "label names and values to apply to the virtual machine")
 }
 
-func Invoke(ctx context.Context, service *genomics.Service, project string, arguments []string) error {
+func Invoke(ctx context.Context, service *genomics.Service, project, location string, arguments []string) error {
 	filenames := common.ParseFlags(flags, arguments)
 
 	var filename string
@@ -207,10 +207,10 @@ func Invoke(ctx context.Context, service *genomics.Service, project string, argu
 		return nil
 	}
 
-	return runPipeline(ctx, service, req)
+	return runPipeline(ctx, service, req, project, location)
 }
 
-func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.RunPipelineRequest) error {
+func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.RunPipelineRequest, project, location string) error {
 	abort := make(chan os.Signal, 1)
 	signal.Notify(abort, os.Interrupt)
 
@@ -218,7 +218,9 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 	for {
 		req.Pipeline.Resources.VirtualMachine.Preemptible = (attempt <= *pvmAttempts)
 
-		lro, err := service.Pipelines.Run(req).Context(ctx).Do()
+		parent := path.Join("projects", project, "locations", location)
+		lro, err := service.Projects.Locations.Pipelines.Run(parent, req).Context(ctx).Do()
+
 		if err != nil {
 			if err, ok := err.(*googleapi.Error); ok && err.Message != "" {
 				return fmt.Errorf("starting pipeline: %q: %q", err.Message, err.Body)
@@ -237,7 +239,7 @@ func runPipeline(ctx context.Context, service *genomics.Service, req *genomics.R
 			return nil
 		}
 
-		if err := watch.Invoke(ctx, service, req.Pipeline.Resources.ProjectId, []string{lro.Name}); err != nil {
+		if err := watch.Invoke(ctx, service, project, location, []string{lro.Name}); err != nil {
 			if err, ok := err.(common.PipelineExecutionError); ok && err.IsRetriable() {
 				if attempt < *pvmAttempts+*attempts {
 					attempt++
@@ -324,14 +326,14 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 
 	if *output != "" {
 		action := gsutil("cp", "/google/logs/output", *output)
-		action.Flags = []string{"ALWAYS_RUN"}
+		action.AlwaysRun = true
 		delocalizers = append(delocalizers, action)
 	}
 
 	var actions []*genomics.Action
 	if *outputInterval != 0 && *output != "" {
 		action := bash(fmt.Sprintf("while true; do sleep %.0f; gsutil -q cp /google/logs/output %s; done", (*outputInterval).Seconds(), *output))
-		action.Flags = []string{"RUN_IN_BACKGROUND"}
+		action.RunInBackground = true
 		actions = append(actions, action)
 	}
 
@@ -368,7 +370,7 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 	}
 
 	if *network != "" {
-		vm.Network.Name = *network
+		vm.Network.Network = *network
 	}
 	if *subnetwork != "" {
 		vm.Network.Subnetwork = *subnetwork
@@ -382,7 +384,6 @@ func buildRequest(filename, project string) (*genomics.RunPipelineRequest, error
 	}
 
 	resources := &genomics.Resources{
-		ProjectId:      project,
 		VirtualMachine: vm,
 	}
 	if *regions != "" && *zones != "" {
@@ -494,12 +495,23 @@ func parse(line string) (*genomics.Action, error) {
 	var action genomics.Action
 
 	options := make(map[string]string)
+	flags := map[string]*bool{
+		"IGNORE_EXIT_STATUS":             &action.IgnoreExitStatus,
+		"RUN_IN_BACKGROUND":              &action.RunInBackground,
+		"ALWAYS_RUN":                     &action.AlwaysRun,
+		"ENABLE_FUSE":                    &action.EnableFuse,
+		"PUBLISH_EXPOSED_PORTS":          &action.PublishExposedPorts,
+		"DISABLE_IMAGE_PREFETCH":         &action.DisableImagePrefetch,
+		"DISABLE_STANDARD_ERROR_CAPTURE": &action.DisableStandardErrorCapture,
+	}
 	if n := strings.Index(line, "#"); n >= 0 {
 		for _, option := range strings.Fields(strings.TrimSpace(line[n+1:])) {
 			if n := strings.Index(option, "="); n >= 0 {
 				options[option[:n]] = option[n+1:]
+			} else if p, ok := flags[strings.ToUpper(option)]; ok {
+				*p = true
 			} else {
-				action.Flags = append(action.Flags, strings.ToUpper(option))
+				return nil, fmt.Errorf("unknown action flag %q specified", option)
 			}
 		}
 		line = line[:n]
@@ -508,7 +520,7 @@ func parse(line string) (*genomics.Action, error) {
 	commands := strings.Fields(strings.TrimSpace(line))
 	if len(commands) > 0 {
 		if commands[len(commands)-1] == "&" {
-			action.Flags = append(action.Flags, "RUN_IN_BACKGROUND")
+			action.RunInBackground = true
 			commands = commands[:len(commands)-1]
 		}
 		action.Commands = []string{"-c", strings.Join(commands, " ")}
@@ -726,7 +738,7 @@ func cancelOnInterrupt(ctx context.Context, service *genomics.Service, name stri
 		<-abort
 		fmt.Println("Cancelling operation...")
 		req := &genomics.CancelOperationRequest{}
-		if _, err := service.Projects.Operations.Cancel(name, req).Context(ctx).Do(); err != nil {
+		if _, err := service.Projects.Locations.Operations.Cancel(name, req).Context(ctx).Do(); err != nil {
 			fmt.Printf("Failed to cancel operation: %v\n", err)
 		}
 	}()
@@ -771,10 +783,11 @@ func gcsFuse(buckets map[string]string) []*genomics.Action {
 	var actions []*genomics.Action
 	for bucket, path := range buckets {
 		actions = append(actions, &genomics.Action{
-			ImageUri: "gcr.io/cloud-genomics-pipelines/gcsfuse",
-			Commands: []string{"--implicit-dirs", "--foreground", bucket, path},
-			Flags:    []string{"ENABLE_FUSE", "RUN_IN_BACKGROUND"},
-			Mounts:   []*genomics.Mount{googleRoot},
+			ImageUri:        "gcr.io/cloud-genomics-pipelines/gcsfuse",
+			Commands:        []string{"--implicit-dirs", "--foreground", bucket, path},
+			EnableFuse:      true,
+			RunInBackground: true,
+			Mounts:          []*genomics.Mount{googleRoot},
 		})
 		actions = append(actions, &genomics.Action{
 			ImageUri: "gcr.io/cloud-genomics-pipelines/gcsfuse",
@@ -787,9 +800,9 @@ func gcsFuse(buckets map[string]string) []*genomics.Action {
 
 func sshDebug(project string) *genomics.Action {
 	return &genomics.Action{
-		ImageUri:     "gcr.io/cloud-genomics-pipelines/tools",
-		Entrypoint:   "ssh-server",
-		PortMappings: map[string]int64{"22": 22},
-		Flags:        []string{"RUN_IN_BACKGROUND"},
+		ImageUri:        "gcr.io/cloud-genomics-pipelines/tools",
+		Entrypoint:      "ssh-server",
+		PortMappings:    map[string]int64{"22": 22},
+		RunInBackground: true,
 	}
 }

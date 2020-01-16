@@ -22,18 +22,18 @@ import (
 	"net/http"
 
 	"github.com/googlegenomics/pipelines-tools/pipelines/internal/common"
-	genomics "google.golang.org/api/genomics/v2alpha1"
 	"google.golang.org/api/googleapi"
+	genomics "google.golang.org/api/lifesciences/v2beta"
 )
 
-func Invoke(ctx context.Context, service *genomics.Service, project string, arguments []string) error {
+func Invoke(ctx context.Context, service *genomics.Service, project, location string, arguments []string) error {
 	if len(arguments) < 1 {
 		return errors.New("missing operation name")
 	}
 
-	name := common.ExpandOperationName(project, arguments[0])
+	name := common.ExpandOperationName(project, location, arguments[0])
 	req := &genomics.CancelOperationRequest{}
-	if _, err := service.Projects.Operations.Cancel(name, req).Context(ctx).Do(); err != nil {
+	if _, err := service.Projects.Locations.Operations.Cancel(name, req).Context(ctx).Do(); err != nil {
 		if err, ok := err.(*googleapi.Error); ok && err.Code == http.StatusNotFound {
 			return fmt.Errorf("operation %q not found", name)
 		}

@@ -33,14 +33,15 @@ import (
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
-	genomics "google.golang.org/api/genomics/v2alpha1"
+	genomics "google.golang.org/api/lifesciences/v2beta"
 )
 
 var (
 	project  = flag.String("project", defaultProject(), "the cloud project name")
+	location = flag.String("location", "us-central1", "Google cloud location to store the metadata for the operations")
 	basePath = flag.String("api", "", "the API base to use")
 
-	commands = map[string]func(context.Context, *genomics.Service, string, []string) error{
+	commands = map[string]func(context.Context, *genomics.Service, string, string, []string) error{
 		"run":    run.Invoke,
 		"cancel": cancel.Invoke,
 		"query":  query.Invoke,
@@ -76,7 +77,7 @@ func main() {
 		exitf("Failed to create service: %v", err)
 	}
 
-	if err := invoke(ctx, service, *project, flag.Args()[1:]); err != nil {
+	if err := invoke(ctx, service, *project, *location, flag.Args()[1:]); err != nil {
 		exitf("%q: %v", command, err)
 	}
 }
@@ -98,7 +99,7 @@ func newService(ctx context.Context, basePath string) (*genomics.Service, error)
 
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, &http.Client{Transport: &transport})
 
-	client, err := google.DefaultClient(ctx, genomics.GenomicsScope)
+	client, err := google.DefaultClient(ctx, genomics.CloudPlatformScope)
 	if err != nil {
 		return nil, fmt.Errorf("creating authenticated client: %v", err)
 	}

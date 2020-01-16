@@ -7,16 +7,19 @@ import (
 	"path"
 	"strings"
 
-	genomics "google.golang.org/api/genomics/v2alpha1"
+	genomics "google.golang.org/api/lifesciences/v2beta"
 	"google.golang.org/genproto/googleapis/rpc/code"
 )
 
-// ExpandOperationName adds the project and operations prefixes to name (if
+// ExpandOperationName adds the project, location and operations prefixes to name (if
 // they are not already present).
-func ExpandOperationName(project, name string) string {
+func ExpandOperationName(project, location, name string) string {
 	if !strings.HasPrefix(name, "projects/") {
-		if !strings.HasPrefix(name, "operations/") {
-			name = path.Join("operations/", name)
+		if !strings.HasPrefix(name, "locations/") {
+			if !strings.HasPrefix(name, "operations/") {
+				name = path.Join("operations/", name)
+			}
+			name = path.Join("locations", location, name)
 		}
 		name = path.Join("projects", project, name)
 	}
